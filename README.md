@@ -65,8 +65,24 @@ npm run typecheck  # TypeScript, no emit
 `dist/` is a static bundle — host it anywhere, including a subdirectory. Routing is
 hash-based and asset paths are relative, so no server rewrite rules are needed.
 
-Note that the camera, GPS and service worker require a secure context: `https://` or
-`localhost`.
+**The camera, GPS and offline service worker require a secure context** — `https://` or
+`localhost`. Over plain `http` on a LAN address the screens work but the camera button
+does not, so test on a phone via the deployed URL rather than `--host`.
+
+### Deploying
+
+`.github/workflows/deploy-pages.yml` builds and publishes to GitHub Pages on every push
+to `main` (and, while the app lives there, to the feature branch), or on demand from the
+Actions tab. It needs one manual step first:
+
+> Repository **Settings → Pages → Build and deployment → Source: GitHub Actions**
+
+Without that the workflow builds green but never publishes. The site then lives at
+`https://<owner>.github.io/<repo>/` — a subpath, which the relative asset paths and hash
+routing handle without configuration.
+
+For a one-off with no repository setup, `npm run build` then drag `dist/` onto
+[app.netlify.com/drop](https://app.netlify.com/drop).
 
 ---
 
@@ -147,9 +163,17 @@ regularly — clearing site data deletes everything.
 
 ## Verified
 
-The full flow is exercised end to end in a real browser (`smoke.mjs`, `smoke2.mjs` with
-Playwright against the production build): all 42 templates render in the register, an ITP
-is raised, items are signed, a hold point is released with a drawn signature, a plan is
-loaded and pinned, a photo is captured and stamped, and the exported PDF is checked to
-contain the header block, materials table, schedule, sign-off and the photographic record
-page with the pinned plan.
+Three Playwright suites drive the production build in a real browser (`npm run smoke`,
+see `tests/README.md`):
+
+- **core** — all 42 templates render in the register, an ITP is raised, items signed,
+  hold points displayed, materials and sign-off screens exercised, PDF exported, plus a
+  desktop viewport pass.
+- **evidence** — a plan is loaded and pinned, a photo captured and stamped, a hold point
+  released with a drawn signature, and the exported PDF checked for the header block,
+  materials table, schedule, sign-off and the photographic record page with the pinned
+  plan.
+- **offline** — the service worker activates, the app survives a reload with the network
+  fully cut, and all 42 templates stay available with no signal.
+
+All three also pass served from a subpath, which is how GitHub Pages serves it.

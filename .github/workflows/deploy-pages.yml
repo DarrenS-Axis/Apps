@@ -1,0 +1,63 @@
+# Builds the app and publishes it to GitHub Pages, so the field crew has a
+# permanent https URL they can open on a phone and install to the home screen.
+#
+# https is not a nicety here: the camera, GPS and the offline service worker
+# are all blocked by browsers outside a secure context.
+#
+# One-time setup: repository Settings → Pages → Build and deployment →
+# Source: "GitHub Actions". Without that this workflow builds but never
+# publishes.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      # Publishes while the app still lives on its feature branch. Once it is
+      # merged to main this line can go.
+      - claude/hydraulic-itp-app-8h5jol
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it — a half-published
+# site is worse than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # `npm run build` runs tsc first, so a type error fails the deploy.
+      - run: npm run build
+
+      # Stops GitHub's Jekyll pass from touching the built output.
+      - run: touch dist/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

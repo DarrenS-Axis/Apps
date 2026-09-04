@@ -9,6 +9,8 @@ console or page error along the way.
 - `smoke-evidence.mjs` — the evidence path: load a plan, raise an ITP against it, sign an
   item with a photo, release a hold point with a drawn signature, drop a pin on the plan,
   sign off and export.
+- `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
+  reloads with the network cut and keeps its data, and all 42 templates remain available.
 
 ## Running them
 
@@ -26,9 +28,14 @@ Environment variables:
 | `ITP_BASE_URL` | `http://127.0.0.1:4173` | Where the built app is served |
 | `ITP_PLAN_FIXTURE` | `/tmp/itp-fixtures/plan.png` | Any plan image (evidence test) |
 | `ITP_PHOTO_FIXTURE` | `/tmp/itp-fixtures/photo.jpg` | Any site photo (evidence test) |
+| `ITP_CHROMIUM` | `/opt/pw-browsers/chromium` | Chromium binary to launch |
 
-The scripts launch Chromium from `/opt/pw-browsers/chromium`; edit `executablePath` if
-your Playwright browsers live elsewhere.
+The offline suite needs the **production** build served over a secure context (`https`
+or a `localhost`/`127.0.0.1` address) — browsers refuse to register a service worker
+anywhere else, and `vite dev` does not register one at all.
 
-Screenshots are written to `/tmp/itp-shots-core` and `/tmp/itp-shots-evidence`, and the
-exported PDFs are saved alongside them for inspection.
+Screenshots are written to `/tmp/itp-shots-core`, `/tmp/itp-shots-evidence` and
+`/tmp/itp-shots-offline`, with the exported PDFs saved alongside them for inspection.
+
+Playwright is deliberately not a dependency — it is a dev tool, not something the app
+ships. Install it transiently with `npm install --no-save playwright`.
