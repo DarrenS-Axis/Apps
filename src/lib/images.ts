@@ -226,13 +226,6 @@ export async function capturePhoto(file: Blob, opts: CapturePhotoOptions): Promi
   }
 }
 
-/** Prepares a drawing image for the plan viewer: downscale, no stamp. */
-export async function processDrawing(file: Blob): Promise<ProcessedImage> {
-  const buf = await readFile(file)
-  const exif = readExif(buf)
-  return processImage(file, { maxEdge: 2600, orientation: exif.orientation, quality: 0.88 })
-}
-
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`

@@ -24,6 +24,24 @@ const swState = await page.evaluate(async () => {
 console.log('service worker:', swState)
 if (swState !== 'activated') errors.push(`Service worker did not activate (${swState})`)
 
+// The shell must be *precached*, not merely reachable. Relying on the HTTP
+// cache would look identical here but is evictable, so a cold start on site
+// could land on a blank page. Assert the bundle is actually in the SW cache.
+const cached = await page.evaluate(async () => {
+  const keys = await caches.keys()
+  const names = []
+  for (const key of keys) {
+    const cache = await caches.open(key)
+    for (const req of await cache.keys()) names.push(new URL(req.url).pathname)
+  }
+  return names
+})
+const hasJs = cached.some((n) => /\/assets\/.*\.js$/.test(n))
+const hasCss = cached.some((n) => /\/assets\/.*\.css$/.test(n))
+console.log('precached assets:', cached.filter((n) => n.includes('/assets/')).length, 'js:', hasJs, 'css:', hasCss)
+if (!hasJs) errors.push('No JS bundle was precached — a cold offline start would render nothing')
+if (!hasCss) errors.push('No stylesheet was precached — a cold offline start would render unstyled')
+
 // Create a job so there is state to survive the offline reload.
 await page.getByRole('button', { name: 'New job' }).click()
 await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Offline Test Job')

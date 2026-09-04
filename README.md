@@ -33,10 +33,18 @@ image itself, so the timestamp survives the photo being copied out of the app. G
 attached from EXIF or the device where available, and capture is never blocked when it
 is not.
 
-**Plans and locations.** Load plan images into the drawing register, link them to an ITP,
-then tap the plan to drop a numbered pin — optionally tied to a specific schedule item —
-with a note like "IO at grid 3, IL 21.30". The exported PDF includes the plan with those
-pins drawn on it, plus the pin schedule.
+**Plans from wherever they live.** Drawings arrive as PDFs — usually a multi-sheet set
+out of SharePoint, OneDrive or a consultant's transmittal. The plan picker opens the
+device's file browser, so any cloud store already signed in on the phone (SharePoint,
+OneDrive, Google Drive, Dropbox) is a source, and on a computer you can drag a file in or
+paste one. Multi-page PDFs render every sheet and ask which one you want; the drawing
+number and revision are read off the title block where they can be determined. Rendering
+happens on the device — a drawing is never uploaded anywhere.
+
+**Locations on the plan.** Link a drawing to an ITP, then tap the plan to drop a numbered
+pin — optionally tied to a specific schedule item — with a note like "IO at grid 3,
+IL 21.30". The exported PDF includes the plan with those pins drawn on it, plus the pin
+schedule.
 
 **Sign-off.** An installer sign-off block with drawn signature, licence / CP number and
 completion date, and a separate client / superintendent acceptance block that closes the
@@ -92,8 +100,8 @@ For a one-off with no repository setup, `npm run build` then drag `dist/` onto
    "Initial & Date" column each time you sign an item. Optionally save a signature.
 2. **Job** — create the job with its number, stage, client and the person who approves
    ITPs for use. These fill the header block of every exported ITP.
-3. **Plans** — add the drawings you are working to, with number, revision and a plan
-   image.
+3. **Plans** — add the drawings you are working to. Pick the PDF straight out of
+   SharePoint or OneDrive through the file picker; choose the sheet if it is a set.
 4. **ITPs → ITP register** — find the ITP for the service you are installing, raise it
    against an area (one per discrete section, as the paper form is issued), and tick the
    drawings it is inspected against.
@@ -137,6 +145,7 @@ src/
   lib/
     exif.ts               minimal EXIF reader — capture time, GPS, orientation
     images.ts             downscaling, orientation, timestamp burn-in, capture
+    planImport.ts         PDF and image plan import, sheet picker, title-block guess
     format.ts             dates, progress, hold-point blocking, status derivation
     pdf.ts                ITP and register PDF export
   components/
@@ -153,6 +162,19 @@ primitives rather than by screenshotting the DOM, so the output is selectable te
 fixed A4 layout regardless of what the phone was rendering. There is no CSS framework —
 the design tokens and components in `styles/app.css` are sized for gloved hands in
 daylight.
+
+**Plan import.** pdf.js renders drawing PDFs, loaded on demand — it is a megabyte, and
+most site sessions never add a drawing. It uses pdf.js's *legacy* build on purpose: the
+modern build relies on very recent JavaScript that throws on phones already in use on
+site. The title-block guess is deliberately conservative and will leave the drawing number
+blank rather than offer one it is unsure of, because a wrong number silently recorded
+against an ITP is worse than a field someone has to fill in.
+
+**Offline.** The service worker reads `index.html` on install and precaches exactly the
+bundle it references, rather than trusting the HTTP cache, which is evictable. Cache
+lookups pass `ignoreVary`: hosts commonly send `Vary: Origin` or `Vary: Accept-Encoding`
+and the app's script tags carry `crossorigin`, so without it the shell caches and is then
+never found — which looks perfect online and blank on site.
 
 **Storage.** Records live in IndexedDB, photos as downscaled JPEG data URLs on their own
 table so the frequently-read ITP records stay small. Photo size is configurable in
@@ -173,7 +195,11 @@ see `tests/README.md`):
   released with a drawn signature, and the exported PDF checked for the header block,
   materials table, schedule, sign-off and the photographic record page with the pinned
   plan.
-- **offline** — the service worker activates, the app survives a reload with the network
-  fully cut, and all 42 templates stay available with no signal.
+- **plan import** — a multi-sheet PDF is imported, every sheet rendered, the right one
+  picked, the drawing number read off the file name (and *not* mistaken for a pipe spec
+  like PM64), then linked to an ITP and pinned.
+- **offline** — the service worker activates, the bundle is genuinely precached (not just
+  reachable), the app survives a reload with the network fully cut, and all 42 templates
+  stay available with no signal.
 
 All three also pass served from a subpath, which is how GitHub Pages serves it.

@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { createDrawing, deleteDrawing, updateDrawing } from '../data/db'
 import { useDrawings, useItps } from '../data/store'
 import type { Drawing } from '../data/types'
-import { processDrawing } from '../lib/images'
+import { guessDrawingDetails, importPlanFile, type ImportProgress, type PlanImport } from '../lib/planImport'
 import { PlanViewer } from '../components/PlanViewer'
-import { ConfirmButton, Empty, Field, IconPlan, IconPlus, IconTrash, Sheet, Toast, useToast } from '../components/ui'
+import { ConfirmButton, Empty, Field, IconPlan, IconPlus, IconTrash, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 
 export function DrawingsPage() {
   const { projectId } = useParams()
@@ -121,29 +121,76 @@ function DrawingSheet({
     issuedDate: drawing?.issuedDate ?? '',
     notes: drawing?.notes ?? '',
   })
-  const [image, setImage] = useState<{ data: string; thumb: string; width: number; height: number } | null>(null)
+  const [imported, setImported] = useState<PlanImport | null>(null)
+  const [pageIndex, setPageIndex] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState<ImportProgress | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   const [error, setError] = useState('')
 
-  const pick = async (files: FileList | null) => {
-    const file = files?.[0]
+  const chosen = imported?.pages[pageIndex] ?? null
+
+  const ingestRef = useRef<(f: File | Blob | undefined) => void>(() => {})
+
+  // Paste events go to the focused element, so a handler on the drop zone would
+  // never fire. Listening on the window lets someone copy a plan in Explorer or
+  // Finder and paste it straight into the open sheet.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const file = e.clipboardData?.files?.[0]
+      if (file) ingestRef.current(file)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [])
+
+  const ingest = async (file: File | Blob | undefined) => {
     if (!file) return
     setBusy(true)
     setError('')
+    setProgress(null)
     try {
-      setImage(await processDrawing(file))
+      const result = await importPlanFile(file, { onProgress: setProgress })
+      setImported(result)
+      setPageIndex(0)
+
+      // Pre-fill from the title block where the fields are still empty, so the
+      // crew is not retyping what the drawing already says.
+      const guess = guessDrawingDetails(result.pages[0], result.fileName)
+      setForm((f) => ({
+        ...f,
+        number: f.number || guess.number || '',
+        revision: f.revision || guess.revision || '',
+        title: f.title || guess.title || '',
+      }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not read that image.')
+      setError(
+        err instanceof Error
+          ? `Could not read that file: ${err.message}`
+          : 'Could not read that file. Images and PDFs are supported.',
+      )
     } finally {
       setBusy(false)
+      setProgress(null)
     }
+  }
+
+  ingestRef.current = (f) => void ingest(f)
+
+  // Re-guess when a different sheet of a multi-page set is selected, since each
+  // sheet carries its own title block.
+  const selectPage = (index: number) => {
+    setPageIndex(index)
+    if (!imported) return
+    const guess = guessDrawingDetails(imported.pages[index], imported.fileName)
+    setForm((f) => ({ ...f, number: guess.number || f.number, revision: guess.revision || f.revision }))
   }
 
   const save = async () => {
     const payload = {
       ...form,
-      ...(image
-        ? { imageData: image.data, thumbData: image.thumb, imageWidth: image.width, imageHeight: image.height }
+      ...(chosen
+        ? { imageData: chosen.data, thumbData: chosen.thumb, imageWidth: chosen.width, imageHeight: chosen.height }
         : {}),
     }
     if (drawing) await updateDrawing(drawing.id, payload)
@@ -152,16 +199,119 @@ function DrawingSheet({
     onClose()
   }
 
-  const preview = image?.thumb ?? drawing?.thumbData
+  const preview = chosen?.thumb ?? drawing?.thumbData
 
   return (
     <Sheet title={drawing ? 'Edit drawing' : 'Add drawing'} onClose={onClose}>
       <div className="stack">
+        <div>
+          <span className="field-label">Plan</span>
+          <p className="small muted" style={{ margin: '0 0 8px' }}>
+            Pick a PDF or image of the drawing. The picker opens your device's file browser, so anything you can reach from
+            there works — <strong>SharePoint, OneDrive, Google Drive, Dropbox</strong>, Files, or the photo library. Nothing is
+            uploaded anywhere: the plan is rendered and stored on this device.
+          </p>
+
+          <input
+            ref={fileRef}
+            className="visually-hidden"
+            type="file"
+            accept="application/pdf,image/*,.pdf"
+            onChange={(e) => {
+              void ingest(e.target.files?.[0])
+              e.target.value = ''
+            }}
+          />
+
+          <div
+            onDragOver={(e) => {
+              e.preventDefault()
+              setDragOver(true)
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDragOver(false)
+              void ingest(e.dataTransfer.files?.[0])
+            }}
+            style={{
+              border: `1px dashed ${dragOver ? 'var(--accent)' : 'var(--line-strong)'}`,
+              background: dragOver ? 'var(--accent-soft)' : 'var(--surface)',
+              borderRadius: 'var(--r-sm)',
+              padding: 14,
+              textAlign: 'center',
+            }}
+          >
+            <button className="btn btn--sm" onClick={() => fileRef.current?.click()} disabled={busy} type="button">
+              <IconPlan />
+              {busy ? 'Reading…' : preview ? 'Replace plan' : 'Choose plan (PDF or image)'}
+            </button>
+            <p className="small muted" style={{ margin: '8px 0 0' }}>
+              On a phone, tap <em>Browse</em> in the picker to reach SharePoint and OneDrive. On a computer you can also drag a
+              file here or paste one.
+            </p>
+          </div>
+
+          {busy && progress ? (
+            <div style={{ marginTop: 10 }}>
+              <div className="row small muted" style={{ marginBottom: 5 }}>
+                <span>Rendering sheet {progress.page} of {progress.total}</span>
+                <span className="spacer" />
+                <span className="mono">{Math.round((progress.page / progress.total) * 100)}%</span>
+              </div>
+              <div className="bar">
+                <i style={{ width: `${(progress.page / progress.total) * 100}%` }} />
+              </div>
+            </div>
+          ) : null}
+
+          {error ? (
+            <div className="banner banner--warn" style={{ marginTop: 8 }}>
+              <IconWarn />
+              <div>{error}</div>
+            </div>
+          ) : null}
+
+          {imported && imported.pages.length > 1 ? (
+            <div style={{ marginTop: 12 }}>
+              <span className="field-label">
+                Which sheet? ({imported.pages.length} pages in this PDF)
+              </span>
+              <div className="photos">
+                {imported.pages.map((p, i) => (
+                  <button
+                    key={p.page}
+                    type="button"
+                    className="photo"
+                    onClick={() => selectPage(i)}
+                    style={{
+                      outline: i === pageIndex ? '3px solid var(--accent)' : 'none',
+                      outlineOffset: -3,
+                    }}
+                  >
+                    <img src={p.thumb} alt={`Page ${p.page}`} loading="lazy" />
+                    <span className="photo__tag">p{p.page}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {preview ? (
+            <img
+              src={preview}
+              alt="Plan preview"
+              style={{ marginTop: 10, width: '100%', borderRadius: 6, border: '1px solid var(--line)' }}
+            />
+          ) : null}
+        </div>
+
+        <div className="hr" />
+
         <div className="field-grid">
           <Field label="Drawing number">
             <input
               type="text"
-              autoFocus
               value={form.number}
               onChange={(e) => setForm({ ...form, number: e.target.value })}
               placeholder="e.g. HC-001"
@@ -193,38 +343,6 @@ function DrawingSheet({
           </Field>
         </div>
 
-        <div>
-          <span className="field-label">Plan image</span>
-          <p className="small muted" style={{ margin: '0 0 8px' }}>
-            A screenshot or export of the plan. It is stored on the device and used for dropping location pins and for the
-            photographic record page of the exported ITP.
-          </p>
-          <input
-            ref={fileRef}
-            className="visually-hidden"
-            type="file"
-            accept="image/*"
-            onChange={(e) => pick(e.target.files)}
-          />
-          <div className="row">
-            <button className="btn btn--ghost btn--sm" onClick={() => fileRef.current?.click()} disabled={busy} type="button">
-              {busy ? 'Processing…' : preview ? 'Replace image' : 'Choose image'}
-            </button>
-          </div>
-          {error ? (
-            <div className="banner banner--warn" style={{ marginTop: 8 }}>
-              {error}
-            </div>
-          ) : null}
-          {preview ? (
-            <img
-              src={preview}
-              alt="Plan preview"
-              style={{ marginTop: 10, width: '100%', borderRadius: 6, border: '1px solid var(--line)' }}
-            />
-          ) : null}
-        </div>
-
         <Field label="Notes">
           <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
         </Field>
@@ -233,7 +351,7 @@ function DrawingSheet({
           <button className="btn btn--ghost" onClick={onClose} type="button">
             Cancel
           </button>
-          <button className="btn" onClick={save} disabled={!form.number.trim() && !form.title.trim()} type="button">
+          <button className="btn" onClick={save} disabled={busy || (!form.number.trim() && !form.title.trim())} type="button">
             Save drawing
           </button>
         </div>

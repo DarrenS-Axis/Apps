@@ -9,6 +9,9 @@ console or page error along the way.
 - `smoke-evidence.mjs` — the evidence path: load a plan, raise an ITP against it, sign an
   item with a photo, release a hold point with a drawn signature, drop a pin on the plan,
   sign off and export.
+- `smoke-plan-import.mjs` — the way plans actually arrive: a multi-sheet PDF picked
+  through the OS file browser (the same route SharePoint and OneDrive come in by),
+  rendered on-device, the right sheet chosen, then linked to an ITP and pinned.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 
@@ -28,6 +31,7 @@ Environment variables:
 | `ITP_BASE_URL` | `http://127.0.0.1:4173` | Where the built app is served |
 | `ITP_PLAN_FIXTURE` | `/tmp/itp-fixtures/plan.png` | Any plan image (evidence test) |
 | `ITP_PHOTO_FIXTURE` | `/tmp/itp-fixtures/photo.jpg` | Any site photo (evidence test) |
+| `ITP_PLAN_PDF` | `/tmp/itp-fixtures/plan.pdf` | Any multi-page PDF (plan import test) |
 | `ITP_CHROMIUM` | `/opt/pw-browsers/chromium` | Chromium binary to launch |
 
 The offline suite needs the **production** build served over a secure context (`https`
