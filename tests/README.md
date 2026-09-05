@@ -22,6 +22,10 @@ console or page error along the way.
   cannot produce the two pointers a pinch needs. Asserts the composited plan layer stays
   within a phone GPU's texture limit, that a zero-separation touch does not jump the zoom,
   and that panning survives a finger being lifted mid-pinch.
+- `smoke-gesture-recovery.mjs` — the exact sequence reported from site: drag the plan,
+  pinch with the fingers released *outside* the viewer, then drag again — repeated over
+  several cycles and with one finger lifted before the other. Also flings the plan at zoom
+  and asserts it stays on screen, painted, and draggable back.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 

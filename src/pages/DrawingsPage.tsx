@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { createDrawing, deleteDrawing, updateDrawing } from '../data/db'
-import { useDrawings, useItps } from '../data/store'
+import { useDrawings, useItps, useSettings } from '../data/store'
 import type { Drawing } from '../data/types'
 import { guessDrawingDetails, importPlanFile, type ImportProgress, type PlanImport } from '../lib/planImport'
 import { PlanViewer } from '../components/PlanViewer'
@@ -372,6 +372,7 @@ function DrawingDetail({
   onToast: (m: string) => void
 }) {
   const [editing, setEditing] = useState(false)
+  const debug = useSettings().showGestureDebug
 
   if (editing) {
     return (
@@ -387,7 +388,7 @@ function DrawingDetail({
   return (
     <Sheet title={`${drawing.number} ${drawing.revision}`.trim()} onClose={onClose}>
       <div className="stack">
-        <PlanViewer drawing={drawing} pins={[]} height={340} />
+        <PlanViewer drawing={drawing} pins={[]} height={340} debug={debug} />
         <div>
           <strong>{drawing.title || 'No title'}</strong>
           <div className="small muted">

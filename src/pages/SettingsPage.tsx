@@ -195,6 +195,29 @@ export function SettingsPage() {
       </div>
 
       <div className="section-title">
+        <h2>Troubleshooting</h2>
+      </div>
+      <div className="card">
+        <div className="card__body">
+          <label className="row" style={{ gap: 10 }}>
+            <input
+              type="checkbox"
+              style={{ width: 20, height: 20, minHeight: 0 }}
+              checked={Boolean(settings.showGestureDebug)}
+              onChange={(e) => void patch({ showGestureDebug: e.target.checked })}
+            />
+            <span>
+              <strong className="small">Show plan gesture readout</strong>
+              <span className="small muted" style={{ display: 'block' }}>
+                Overlays live pan and pinch state on the plan. Turn this on only if the plan misbehaves on your device —
+                reading out the numbers while it goes wrong says far more than describing it.
+              </span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div className="section-title">
         <h2>About</h2>
       </div>
       <div className="card">

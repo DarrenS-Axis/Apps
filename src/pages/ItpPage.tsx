@@ -910,6 +910,7 @@ function PlansTab({
               regions={regions}
               mode={mode}
               drawColour={colour}
+              debug={settings.showGestureDebug}
               selectedPinId={selectedPin?.id}
               selectedRegionId={selectedRegion?.id}
               onDropPin={(x, y) => void dropPin(x, y)}

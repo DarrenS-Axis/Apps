@@ -23,6 +23,8 @@ interface Props {
   mode?: PlanMode
   /** Colour used for the region currently being drawn. */
   drawColour?: RegionColour
+  /** Overlays live gesture state, for diagnosing device-specific problems. */
+  debug?: boolean
 }
 
 interface Transform {
@@ -36,9 +38,24 @@ type Point = { x: number; y: number }
 /** Below this separation two touches are one point, not a pinch. */
 const MIN_PINCH_DISTANCE = 24
 
+/**
+ * How long a tracked pointer may go unheard before a new touch treats it as
+ * lost. Browsers occasionally drop a pointerup — a stale entry would otherwise
+ * make every later one-finger drag look like a pinch.
+ */
+const STALE_POINTER_MS = 2000
+
 /** Zoom range, in image pixels per CSS pixel. */
 const MIN_SCALE = 0.02
 const MAX_SCALE = 16
+
+/**
+ * How much of the plan must stay on screen, in CSS pixels. Panning is otherwise
+ * unbounded, and once zoomed in it takes only a couple of drags to push the
+ * drawing entirely out of view — leaving a blank panel that looks for all the
+ * world like the viewer has died.
+ */
+const PAN_MARGIN = 72
 
 /**
  * Pan / zoom plan viewer with pin dropping and region highlighting.
@@ -68,18 +85,26 @@ export function PlanViewer({
   height = 420,
   mode = 'view',
   drawColour = 'yellow',
+  debug = false,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
 
   const [t, setT] = useState<Transform>({ scale: 1, x: 0, y: 0 })
+  // The window listeners are bound once and read the handlers through a ref, so
+  // the transform they see can lag React's commit by a frame during a fast
+  // gesture. This always holds the newest value.
+  const tRef = useRef(t)
+  tRef.current = t
   const [size, setSize] = useState({ w: drawing.imageWidth ?? 1000, h: drawing.imageHeight ?? 700 })
   const [box, setBox] = useState({ w: 0, h: 0 })
   const [ready, setReady] = useState(false)
 
-  // Pointer bookkeeping: one pointer pans or draws, two always pinch.
-  const pointers = useRef(new Map<number, Point>())
+  // Pointer bookkeeping: one pointer pans or draws, two always pinch. The
+  // timestamp exists so a pointer whose release was never delivered cannot
+  // wedge the viewer permanently — see the prune in onPointerDown.
+  const pointers = useRef(new Map<number, Point & { at: number }>())
   const pinchStart = useRef<{ dist: number; scale: number; cx: number; cy: number } | null>(null)
   const panStart = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null)
   const moved = useRef(false)
@@ -88,9 +113,31 @@ export function PlanViewer({
 
   const drawingMode = mode === 'highlight' || mode === 'area'
 
+  const [debugTick, setDebugTick] = useState(0)
+  const noteGesture = useCallback(() => {
+    if (debug) setDebugTick((n) => n + 1)
+  }, [debug])
+
   const clampScale = useCallback(
     (value: number) => (Number.isFinite(value) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, value)) : MIN_SCALE),
     [],
+  )
+
+  /** Keeps at least a corner of the plan within the viewport. */
+  const clampT = useCallback(
+    (next: Transform): Transform => {
+      if (box.w < 1 || box.h < 1 || !Number.isFinite(next.x) || !Number.isFinite(next.y)) return next
+      const pw = size.w * next.scale
+      const ph = size.h * next.scale
+      const mx = Math.min(PAN_MARGIN, pw, box.w)
+      const my = Math.min(PAN_MARGIN, ph, box.h)
+      return {
+        scale: next.scale,
+        x: Math.min(box.w - mx, Math.max(mx - pw, next.x)),
+        y: Math.min(box.h - my, Math.max(my - ph, next.y)),
+      }
+    },
+    [box.w, box.h, size.w, size.h],
   )
 
   /* -------------------------------------------------------------- sizing */
@@ -326,7 +373,7 @@ export function PlanViewer({
       const scale = clampScale(prev.scale * factor)
       const k = scale / prev.scale
       if (!Number.isFinite(k)) return prev
-      return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k }
+      return clampT({ scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k })
     })
   }
 
@@ -364,22 +411,30 @@ export function PlanViewer({
   /* ------------------------------------------------------------ gestures */
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Track the pointer FIRST. Capture is only an optimisation — it keeps events
-    // coming when a finger slides off the viewer — but Safari throws from
-    // setPointerCapture in several situations, and when this ran first that
-    // exception skipped the rest of the handler, leaving the plan completely
-    // unable to pan or pinch.
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
-    moved.current = false
-
-    try {
-      // Capture on the viewer itself, not the event target: the canvas repaints
-      // constantly and a capture held by a replaced node is silently lost.
-      e.currentTarget.setPointerCapture?.(e.pointerId)
-    } catch {
-      // Without capture the gesture still works while the finger stays over the
-      // plan, which is the overwhelmingly common case.
+    // Movement and release are tracked on the window (see the effect below), so
+    // no pointer capture is taken here at all. Capture was the source of a
+    // whole class of Safari failures, and it is not needed once the release is
+    // heard wherever it happens.
+    // Drop anything stale before counting fingers. If a release went missing —
+    // and browsers do lose them — a leftover pointer would make the next
+    // one-finger drag look like a pinch, which does nothing, and the plan would
+    // appear stuck until it was remounted.
+    const now = performance.now()
+    // The first finger of a new touch is flagged primary by the spec, so nothing
+    // else can legitimately still be down: whatever is left in the map is a
+    // release we never heard. Age is the fallback for mice and pens.
+    if (e.isPrimary && e.pointerType === 'touch') {
+      pointers.current.clear()
+      pinchStart.current = null
+      panStart.current = null
     }
+    for (const [id, p] of pointers.current) {
+      if (id !== e.pointerId && now - p.at > STALE_POINTER_MS) pointers.current.delete(id)
+    }
+
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, at: now })
+    moved.current = false
+    noteGesture()
 
     if (pointers.current.size === 1) {
       if (drawingMode && onDrawRegion) {
@@ -406,9 +461,9 @@ export function PlanViewer({
     }
   }
 
-  const onPointerMove = (e: React.PointerEvent) => {
+  const onPointerMove = (e: PointerEvent) => {
     if (!pointers.current.has(e.pointerId)) return
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY, at: performance.now() })
 
     if (pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()]
@@ -432,7 +487,7 @@ export function PlanViewer({
         const rect = el.getBoundingClientRect()
         const cx = pinchStart.current!.cx - rect.left
         const cy = pinchStart.current!.cy - rect.top
-        return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k }
+        return clampT({ scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k })
       })
       return
     }
@@ -457,11 +512,16 @@ export function PlanViewer({
       const dx = e.clientX - panStart.current.x
       const dy = e.clientY - panStart.current.y
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) moved.current = true
-      setT((prev) => ({ ...prev, x: panStart.current!.tx + dx, y: panStart.current!.ty + dy }))
+      setT((prev) => clampT({ scale: prev.scale, x: panStart.current!.tx + dx, y: panStart.current!.ty + dy }))
     }
   }
 
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPointerUp = (e: PointerEvent) => {
+    // These listeners are on the window, so ignore releases from pointers that
+    // never started a gesture here — a tap on a button elsewhere on the page
+    // would otherwise be read as the end of a pan.
+    if (!pointers.current.has(e.pointerId)) return
+    noteGesture()
     const wasSingle = pointers.current.size === 1
     pointers.current.delete(e.pointerId)
 
@@ -472,7 +532,7 @@ export function PlanViewer({
       // One finger left after a pinch. Without re-anchoring here the plan
       // simply stopped responding until every finger was lifted.
       const [remaining] = [...pointers.current.values()]
-      panStart.current = { x: remaining.x, y: remaining.y, tx: t.x, ty: t.y }
+      panStart.current = { x: remaining.x, y: remaining.y, tx: tRef.current.x, ty: tRef.current.y }
     }
 
     if (drafting.current) {
@@ -504,7 +564,8 @@ export function PlanViewer({
    * state: a cancelled pointer never sends another event, so any anchor left
    * behind would wedge the viewer until the component remounted.
    */
-  const onPointerCancel = (e: React.PointerEvent) => {
+  const onPointerCancel = (e: PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return
     pointers.current.delete(e.pointerId)
     if (pointers.current.size === 0) {
       pinchStart.current = null
@@ -516,16 +577,46 @@ export function PlanViewer({
     }
   }
 
-  const onLostPointerCapture = (e: React.PointerEvent) => {
-    if (!pointers.current.has(e.pointerId)) return
-    pointers.current.delete(e.pointerId)
-    if (pointers.current.size < 2) pinchStart.current = null
-    if (pointers.current.size === 0) {
+  // Latest handlers, so the window listeners below never close over stale state.
+  const gestureRef = useRef({ onPointerMove, onPointerUp, onPointerCancel })
+  gestureRef.current = { onPointerMove, onPointerUp, onPointerCancel }
+
+  /**
+   * Gestures are followed on the window, not the viewer.
+   *
+   * Pinching spreads the fingers well beyond a 420 px-tall plan, so a finger is
+   * routinely released outside it. Bound to the element, that `pointerup` was
+   * never heard and the pointer stayed in the tracked map for good — after
+   * which a one-finger drag counted as two pointers, was taken for a pinch, and
+   * did nothing at all. That is why dragging worked until the first pinch and
+   * not after.
+   */
+  useEffect(() => {
+    const move = (e: PointerEvent) => gestureRef.current.onPointerMove(e)
+    const up = (e: PointerEvent) => gestureRef.current.onPointerUp(e)
+    const cancel = (e: PointerEvent) => gestureRef.current.onPointerCancel(e)
+    // Losing the window or the tab mid-gesture leaves nothing to release it.
+    const reset = () => {
+      pointers.current.clear()
+      pinchStart.current = null
       panStart.current = null
       drafting.current = false
       setDraft(null)
     }
-  }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('blur', reset)
+    document.addEventListener('visibilitychange', reset)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('blur', reset)
+      document.removeEventListener('visibilitychange', reset)
+    }
+  }, [])
 
   const onWheel = (e: React.WheelEvent) => {
     zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY)
@@ -549,10 +640,6 @@ export function PlanViewer({
       className="planview"
       style={{ height, cursor }}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
-      onLostPointerCapture={onLostPointerCapture}
       onWheel={onWheel}
     >
       <canvas
@@ -602,6 +689,21 @@ export function PlanViewer({
           </button>
         )
       })}
+
+      {debug ? (
+        <div className="planview__debug" aria-hidden="true">
+          <div>
+            pointers {pointers.current.size} · pinch {pinchStart.current ? 'y' : 'n'} · pan{' '}
+            {panStart.current ? 'y' : 'n'} · draw {drafting.current ? 'y' : 'n'}
+          </div>
+          <div>
+            mode {mode} · scale {t.scale.toFixed(2)} · x {Math.round(t.x)} y {Math.round(t.y)}
+          </div>
+          <div>
+            plan {size.w}×{size.h} · view {Math.round(box.w)}×{Math.round(box.h)} · ev {debugTick}
+          </div>
+        </div>
+      ) : null}
 
       <div className="planview__zoom">
         <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={() => zoomAt(1.3)} aria-label="Zoom in">

@@ -197,13 +197,29 @@ viewport, so the composited surface is one screen whatever the zoom and memory s
 ignored — they are bound directly and non-passively instead. iOS Safari goes further: it
 handles pinch through its own `gesture*` events and page-zooms regardless of
 `touch-action: none`, cancelling the app's pointers mid-gesture, so those are blocked on
-the viewer too. `setPointerCapture` is also called *after* the pointer is recorded and
-inside a `try`, because Safari throws from it in several situations and an exception there
-used to skip the rest of the handler — leaving the plan unable to pan or pinch at all.
+the viewer too. Pointer capture was dropped entirely: Safari throws from
+`setPointerCapture` in several situations, and an exception there skipped the rest of the
+handler, leaving the plan unable to pan or pinch at all.
 Zoom quality improved as a side effect: the visible region is drawn at native resolution
 rather than being a magnified bitmap. Pins remain DOM buttons — they are a constant size on
 screen, so they cost nothing and stay real, focusable controls — while highlights are
 painted and hit-tested against their own path.
+
+**Gestures are followed on the window, and the plan cannot be lost.** Pinching spreads the
+fingers well past a 420 px-tall viewer, so a finger is routinely released outside it —
+bound to the element, that `pointerup` was never heard, the pointer stayed in the tracked
+map for good, and the next one-finger drag counted as two pointers, was taken for a pinch,
+and did nothing. Tracking moved to the window, and a new touch flagged `isPrimary` clears
+the map outright: by the spec nothing else can still be down, so anything left is a release
+that went missing. Age is the fallback for mice and pens, and losing the window or the tab
+resets the gesture too.
+
+Panning is clamped to keep at least 72 px of the drawing on screen. It was unbounded
+before, so once zoomed in a couple of firm drags pushed the plan clean out of the viewport
+and left a blank panel that looks exactly like a viewer that has died. Settings →
+Troubleshooting turns on a live readout of pointer count, pinch/pan state, scale and
+offset, so a fault that only appears on one phone can be reported as numbers rather than
+described.
 
 **Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
 a highlight stays put whatever resolution the plan was rendered at and whatever the device
@@ -254,8 +270,11 @@ see `tests/README.md`):
 - **pinch** — real two-finger touch events on a large plan: the composited surface stays
   one viewport however hard it is pinched, two fingers landing on the same spot do not jump
   the zoom, and the plan still pans after one finger is lifted mid-pinch.
+- **gesture recovery** — the sequence reported from site: drag, pinch with the fingers
+  released off the viewer, then drag again, repeatedly and with staggered releases; plus
+  flinging the plan at zoom, which must leave it on screen and still draggable.
 - **offline** — the service worker activates, the bundle is genuinely precached (not just
   reachable), the app survives a reload with the network fully cut, and all 42 templates
   stay available with no signal.
 
-All three also pass served from a subpath, which is how GitHub Pages serves it.
+They also pass served from a subpath, which is how GitHub Pages serves it.

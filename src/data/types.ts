@@ -360,6 +360,12 @@ export interface Settings {
   captureGps: boolean
   /** Long edge, in pixels, that photos are downscaled to before storage. */
   photoMaxEdge: number
+  /**
+   * Overlays live gesture state on the plan. Off by default — it exists so a
+   * problem that only shows up on a particular phone can be reported with
+   * facts rather than described.
+   */
+  showGestureDebug?: boolean
   updatedAt: number
 }
 
