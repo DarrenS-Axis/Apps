@@ -147,6 +147,37 @@ export function PlanViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, size.w, size.h, box.w, box.h])
 
+  /**
+   * Stops the browser claiming the gesture for itself.
+   *
+   * React registers `touchmove` and `wheel` as passive listeners on its root, so
+   * `preventDefault()` from a React handler is ignored — they have to be bound
+   * directly, non-passively. iOS Safari additionally handles pinch through its
+   * own `gesture*` events and page-zooms regardless of `touch-action: none`,
+   * cancelling our pointers mid-gesture, which left the plan unable to pan or
+   * pinch at all on a phone.
+   */
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const stop = (e: Event) => {
+      if (e.cancelable) e.preventDefault()
+    }
+    const opts: AddEventListenerOptions = { passive: false }
+    el.addEventListener('touchmove', stop, opts)
+    el.addEventListener('wheel', stop, opts)
+    el.addEventListener('gesturestart', stop, opts)
+    el.addEventListener('gesturechange', stop, opts)
+    el.addEventListener('gestureend', stop, opts)
+    return () => {
+      el.removeEventListener('touchmove', stop, opts)
+      el.removeEventListener('wheel', stop, opts)
+      el.removeEventListener('gesturestart', stop, opts)
+      el.removeEventListener('gesturechange', stop, opts)
+      el.removeEventListener('gestureend', stop, opts)
+    }
+  }, [])
+
   /* ------------------------------------------------------------- drawing */
 
   const strokeWidth = Math.max(size.w, size.h) * REGION_STROKE_FRACTION
@@ -266,8 +297,11 @@ export function PlanViewer({
     draw()
     // Exposed for the pinch regression test, which needs the live zoom now that
     // there is no transform on an element to read it back from.
-    ;(window as unknown as { __planScale?: number }).__planScale = t.scale
-  }, [draw, t.scale])
+    const probe = window as unknown as { __planScale?: number; __planX?: number; __planY?: number }
+    probe.__planScale = t.scale
+    probe.__planX = t.x
+    probe.__planY = t.y
+  }, [draw, t.scale, t.x, t.y])
 
   /* ------------------------------------------------------------ geometry */
 
@@ -330,11 +364,22 @@ export function PlanViewer({
   /* ------------------------------------------------------------ gestures */
 
   const onPointerDown = (e: React.PointerEvent) => {
-    // Capture on the viewer itself, not the event target: the canvas repaints
-    // constantly and a capture held by a replaced node is silently lost.
-    e.currentTarget.setPointerCapture?.(e.pointerId)
+    // Track the pointer FIRST. Capture is only an optimisation — it keeps events
+    // coming when a finger slides off the viewer — but Safari throws from
+    // setPointerCapture in several situations, and when this ran first that
+    // exception skipped the rest of the handler, leaving the plan completely
+    // unable to pan or pinch.
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     moved.current = false
+
+    try {
+      // Capture on the viewer itself, not the event target: the canvas repaints
+      // constantly and a capture held by a replaced node is silently lost.
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+    } catch {
+      // Without capture the gesture still works while the finger stays over the
+      // plan, which is the overwhelmingly common case.
+    }
 
     if (pointers.current.size === 1) {
       if (drawingMode && onDrawRegion) {
@@ -454,6 +499,23 @@ export function PlanViewer({
     }
   }
 
+  /**
+   * The browser took the gesture over. Drop everything rather than half-keeping
+   * state: a cancelled pointer never sends another event, so any anchor left
+   * behind would wedge the viewer until the component remounted.
+   */
+  const onPointerCancel = (e: React.PointerEvent) => {
+    pointers.current.delete(e.pointerId)
+    if (pointers.current.size === 0) {
+      pinchStart.current = null
+      panStart.current = null
+      drafting.current = false
+      setDraft(null)
+    } else if (pointers.current.size < 2) {
+      pinchStart.current = null
+    }
+  }
+
   const onLostPointerCapture = (e: React.PointerEvent) => {
     if (!pointers.current.has(e.pointerId)) return
     pointers.current.delete(e.pointerId)
@@ -489,7 +551,7 @@ export function PlanViewer({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onLostPointerCapture={onLostPointerCapture}
       onWheel={onWheel}
     >

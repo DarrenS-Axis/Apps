@@ -151,6 +151,7 @@ await page.waitForTimeout(300)
 // the plan, not leave a stray mark.
 await page.getByRole('button', { name: 'Pan / zoom' }).click()
 await page.waitForTimeout(300)
+const panBefore = await page.evaluate(() => window.__planX ?? 0)
 await dragOnPlan([
   [0.5, 0.3],
   [0.6, 0.35],
@@ -159,6 +160,15 @@ await page.waitForTimeout(400)
 const rowsAfterPan = await page.locator('table.data tbody tr').count()
 console.log('rows after panning:', rowsAfterPan)
 if (rowsAfterPan !== rows) errors.push('Panning in view mode created or removed a region')
+
+// ...and it must actually pan. A drag that quietly does nothing is how the
+// viewer failed once before, and counting rows alone would not have noticed.
+const panned = await page.evaluate(() => window.__planX ?? null)
+console.log('plan offset after panning:', panned)
+if (panned === null) errors.push('The plan viewer exposed no offset to check panning against')
+else if (Math.abs(panned - panBefore) < 20) {
+  errors.push(`Dragging in view mode did not pan the plan (offset ${panBefore} -> ${panned})`)
+}
 
 // --- The markup has to reach the PDF, which is what the inspector sees.
 const dl = page.waitForEvent('download', { timeout: 40000 })

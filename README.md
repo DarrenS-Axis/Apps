@@ -191,6 +191,15 @@ tiles its way through it, which is why it took a report from a phone to surface.
 
 The viewer now paints only the visible slice of the plan into a canvas the size of the
 viewport, so the composited surface is one screen whatever the zoom and memory stays flat.
+
+**Gestures have to be taken from the browser explicitly.** React registers `touchmove` and
+`wheel` as passive listeners on its root, so `preventDefault()` from a React handler is
+ignored — they are bound directly and non-passively instead. iOS Safari goes further: it
+handles pinch through its own `gesture*` events and page-zooms regardless of
+`touch-action: none`, cancelling the app's pointers mid-gesture, so those are blocked on
+the viewer too. `setPointerCapture` is also called *after* the pointer is recorded and
+inside a `try`, because Safari throws from it in several situations and an exception there
+used to skip the rest of the handler — leaving the plan unable to pan or pinch at all.
 Zoom quality improved as a side effect: the visible region is drawn at native resolution
 rather than being a magnified bitmap. Pins remain DOM buttons — they are a constant size on
 screen, so they cost nothing and stay real, focusable controls — while highlights are
