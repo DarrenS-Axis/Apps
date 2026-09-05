@@ -181,6 +181,14 @@ detaches the photo instead of destroying evidence. Dropping a pin creates it imm
 and opens one sheet holding its label, note and camera — an earlier version showed a
 placement dialog and then a detail dialog with the same fields twice.
 
+**Zoom limits.** The plan is one CSS-transformed image, so the browser composites it as a
+single layer. Mobile GPUs cap textures at 4096-8192 px per side, and an unbounded ceiling
+turned a 2600 px plan into a 31200 px layer — around 690 megapixels — which took the tab
+down on a phone while desktop tiled its way through it. The maximum zoom is now derived
+from the plan's own dimensions, bounded by both edge length and total pixels. Scale 1 is
+already one image pixel per CSS pixel, so the ceiling only has to be generous relative to
+the fitted view, which for a large plan on a phone is about 0.16.
+
 **Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
 a highlight stays put whatever resolution the plan was rendered at and whatever the device
 zoom. They live on the ITP rather than the drawing, because the question being answered is
@@ -227,6 +235,9 @@ see `tests/README.md`):
 - **pin photos** — photos captured at a pin, the count shown on the plan, an existing photo
   reassigned to a pin, the pin credited in the exported PDF, and the evidence kept when the
   pin is removed.
+- **pinch** — real two-finger touch events on a large plan: the composited layer stays
+  inside the GPU texture limit however hard it is pinched, two fingers landing on the same
+  spot do not jump the zoom, and the plan still pans after one finger is lifted mid-pinch.
 - **offline** — the service worker activates, the bundle is genuinely precached (not just
   reachable), the app survives a reload with the network fully cut, and all 42 templates
   stay available with no signal.

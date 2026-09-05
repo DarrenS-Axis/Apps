@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Drawing, PlanPin, PlanRegion, RegionColour } from '../data/types'
 import { REGION_COLOURS, REGION_STROKE_FRACTION } from '../data/types'
 
@@ -32,6 +32,35 @@ interface Transform {
 }
 
 type Point = { x: number; y: number }
+
+/**
+ * Largest edge, in device pixels, the transformed plan is allowed to reach.
+ *
+ * The plan is a single CSS-transformed <img>, so the browser composites it as
+ * one layer. Mobile GPUs cap textures at 4096-8192 px per side; going past that
+ * makes the plan blank out or takes the whole tab down. A 2600 px plan at the
+ * old fixed 12x ceiling became 31200 px tall — around 690 megapixels.
+ */
+const MAX_LAYER_EDGE = 8192
+
+/** Second guard: total composited pixels, which is what actually costs memory. */
+const MAX_LAYER_PIXELS = 40e6
+
+/** Below this separation two touches are treated as one point, not a pinch. */
+const MIN_PINCH_DISTANCE = 24
+
+/**
+ * Highest safe zoom for a given plan. Scale 1 is one image pixel per CSS pixel,
+ * so anything above 1 is already magnifying past the source resolution — the
+ * ceiling only has to be generous relative to the fitted view, which for a large
+ * plan on a phone is around 0.16.
+ */
+function maxScaleFor(w: number, h: number): number {
+  if (!w || !h) return 1
+  const byEdge = MAX_LAYER_EDGE / Math.max(w, h)
+  const byArea = Math.sqrt(MAX_LAYER_PIXELS / (w * h))
+  return Math.max(1, Math.min(12, byEdge, byArea))
+}
 
 /**
  * Pan / zoom plan viewer with pin dropping and region highlighting.
@@ -70,12 +99,27 @@ export function PlanViewer({
 
   const drawingMode = mode === 'highlight' || mode === 'area'
 
+  const maxScale = useMemo(() => maxScaleFor(size.w, size.h), [size.w, size.h])
+
+  /** Keeps every zoom path inside the safe range, and never returns NaN. */
+  const clampScale = useCallback(
+    (value: number) => {
+      if (!Number.isFinite(value)) return maxScale
+      return Math.min(maxScale, Math.max(0.02, value))
+    },
+    [maxScale],
+  )
+
   const fit = useCallback(
     (w = size.w, h = size.h) => {
       const el = wrapRef.current
       if (!el || !w || !h) return
       const rect = el.getBoundingClientRect()
+      // The viewer can be measured before layout settles; a zero-sized box would
+      // otherwise produce scale 0 and divide by zero on the next zoom.
+      if (rect.width < 1 || rect.height < 1) return
       const scale = Math.min(rect.width / w, rect.height / h)
+      if (!Number.isFinite(scale) || scale <= 0) return
       setT({ scale, x: (rect.width - w * scale) / 2, y: (rect.height - h * scale) / 2 })
     },
     [size.w, size.h],
@@ -116,8 +160,9 @@ export function PlanViewer({
     const cx = (clientX ?? rect.left + rect.width / 2) - rect.left
     const cy = (clientY ?? rect.top + rect.height / 2) - rect.top
     setT((prev) => {
-      const scale = Math.min(12, Math.max(0.05, prev.scale * factor))
+      const scale = clampScale(prev.scale * factor)
       const k = scale / prev.scale
+      if (!Number.isFinite(k)) return prev
       return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k }
     })
   }
@@ -143,12 +188,14 @@ export function PlanViewer({
       drafting.current = false
       setDraft(null)
       const [a, b] = [...pointers.current.values()]
-      pinchStart.current = {
-        dist: Math.hypot(a.x - b.x, a.y - b.y),
-        scale: t.scale,
-        cx: (a.x + b.x) / 2,
-        cy: (a.y + b.y) / 2,
-      }
+      const dist = Math.hypot(a.x - b.x, a.y - b.y)
+      // Two fingers landing on the same spot — a thumb and forefinger planted
+      // together — gave a baseline of zero, so the first move divided by zero
+      // and slammed the plan to maximum zoom. Wait for real separation instead.
+      pinchStart.current =
+        dist >= MIN_PINCH_DISTANCE
+          ? { dist, scale: t.scale, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }
+          : null
       panStart.current = null
     }
   }
@@ -157,19 +204,28 @@ export function PlanViewer({
     if (!pointers.current.has(e.pointerId)) return
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
 
-    if (pointers.current.size >= 2 && pinchStart.current) {
+    if (pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()]
       const dist = Math.hypot(a.x - b.x, a.y - b.y)
+
+      // The fingers may only now have separated enough to mean a pinch.
+      if (!pinchStart.current) {
+        if (dist < MIN_PINCH_DISTANCE) return
+        pinchStart.current = { dist, scale: t.scale, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }
+        return
+      }
+
       const target = pinchStart.current.scale * (dist / pinchStart.current.dist)
       moved.current = true
       setT((prev) => {
-        const scale = Math.min(12, Math.max(0.05, target))
         const el = wrapRef.current
         if (!el) return prev
+        const scale = clampScale(target)
+        const k = scale / prev.scale
+        if (!Number.isFinite(k)) return prev
         const rect = el.getBoundingClientRect()
         const cx = pinchStart.current!.cx - rect.left
         const cy = pinchStart.current!.cy - rect.top
-        const k = scale / prev.scale
         return { scale, x: cx - (cx - prev.x) * k, y: cy - (cy - prev.y) * k }
       })
       return
@@ -202,8 +258,16 @@ export function PlanViewer({
   const onPointerUp = (e: React.PointerEvent) => {
     const wasSingle = pointers.current.size === 1
     pointers.current.delete(e.pointerId)
+
     if (pointers.current.size < 2) pinchStart.current = null
-    if (pointers.current.size === 0) panStart.current = null
+    if (pointers.current.size === 0) {
+      panStart.current = null
+    } else if (pointers.current.size === 1 && !drafting.current) {
+      // One finger left after a pinch. Without re-anchoring here the plan
+      // simply stopped responding until every finger was lifted.
+      const [remaining] = [...pointers.current.values()]
+      panStart.current = { x: remaining.x, y: remaining.y, tx: t.x, ty: t.y }
+    }
 
     if (drafting.current) {
       drafting.current = false
@@ -219,6 +283,17 @@ export function PlanViewer({
     if (wasSingle && !moved.current && mode === 'pin' && onDropPin) {
       const p = toPlan(e.clientX, e.clientY)
       if (p && p.x >= 0 && p.y >= 0 && p.x <= 1 && p.y <= 1) onDropPin(p.x, p.y)
+    }
+  }
+
+  const onLostPointerCapture = (e: React.PointerEvent) => {
+    if (!pointers.current.has(e.pointerId)) return
+    pointers.current.delete(e.pointerId)
+    if (pointers.current.size < 2) pinchStart.current = null
+    if (pointers.current.size === 0) {
+      panStart.current = null
+      drafting.current = false
+      setDraft(null)
     }
   }
 
@@ -247,6 +322,7 @@ export function PlanViewer({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onLostPointerCapture={onLostPointerCapture}
       onWheel={onWheel}
     >
       <div

@@ -18,6 +18,10 @@ console or page error along the way.
 - `smoke-pin-photos.mjs` — photos taken at a plan pin: capture from the pin, the count shown
   on the plan and in the pin list, an existing photo reassigned to a pin, the pin credited
   in the exported PDF, and the evidence surviving the pin's removal.
+- `smoke-pinch.mjs` — pinch-zoom driven with CDP touch events, because Playwright's mouse
+  cannot produce the two pointers a pinch needs. Asserts the composited plan layer stays
+  within a phone GPU's texture limit, that a zero-separation touch does not jump the zoom,
+  and that panning survives a finger being lifted mid-pinch.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 
@@ -36,6 +40,7 @@ Environment variables:
 | --- | --- | --- |
 | `ITP_BASE_URL` | `http://127.0.0.1:4173` | Where the built app is served |
 | `ITP_PLAN_FIXTURE` | `/tmp/itp-fixtures/plan.png` | Any plan image (evidence test) |
+| `ITP_BIG_PLAN_FIXTURE` | falls back to `ITP_PLAN_FIXTURE` | A large plan (pinch test) — the zoom bug only bites on a big source image |
 | `ITP_PHOTO_FIXTURE` | `/tmp/itp-fixtures/photo.jpg` | Any site photo (evidence test) |
 | `ITP_PLAN_PDF` | `/tmp/itp-fixtures/plan.pdf` | Any multi-page PDF (plan import test) |
 | `ITP_CHROMIUM` | `/opt/pw-browsers/chromium` | Chromium binary to launch |

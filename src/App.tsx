@@ -1,6 +1,7 @@
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useActiveProjectId, useOnline, useProject, useProjects } from './data/store'
 import { IconCamera, IconCog, IconHome, IconList, IconPlan } from './components/ui'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { ProjectPage } from './pages/ProjectPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -76,17 +77,20 @@ function Shell() {
       </header>
 
       <main className="main">
-        <Routes>
-          <Route path="/" element={<Navigate to={projectId ? `/project/${projectId}` : '/projects'} replace />} />
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/project/:projectId" element={<ProjectPage />} />
-          <Route path="/project/:projectId/itps" element={<RegisterPage />} />
-          <Route path="/project/:projectId/itp/:itpId" element={<ItpPage />} />
-          <Route path="/project/:projectId/drawings" element={<DrawingsPage />} />
-          <Route path="/project/:projectId/photos" element={<PhotosPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        {/* Keyed on the route so navigating away clears a failed screen. */}
+        <ErrorBoundary key={location.pathname} area="this screen">
+          <Routes>
+            <Route path="/" element={<Navigate to={projectId ? `/project/${projectId}` : '/projects'} replace />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/project/:projectId" element={<ProjectPage />} />
+            <Route path="/project/:projectId/itps" element={<RegisterPage />} />
+            <Route path="/project/:projectId/itp/:itpId" element={<ItpPage />} />
+            <Route path="/project/:projectId/drawings" element={<DrawingsPage />} />
+            <Route path="/project/:projectId/photos" element={<PhotosPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
 
       <TabBar projectId={projectId} />

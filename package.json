@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-offline.mjs"
+    "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-pinch.mjs && node tests/smoke-offline.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.5",
