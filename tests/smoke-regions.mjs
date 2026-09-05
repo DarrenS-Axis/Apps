@@ -106,13 +106,46 @@ await page.getByRole('button', { name: 'Save highlight' }).click()
 await page.waitForTimeout(800)
 await shot('05-area-boxed')
 
-const svgShapes = await page.locator('.planview svg path, .planview svg rect').count()
-console.log('shapes drawn on plan:', svgShapes)
-if (svgShapes < 2) errors.push(`Expected at least 2 region shapes on the plan, got ${svgShapes}`)
+// Regions are painted onto the canvas rather than being SVG nodes, so this
+// samples the pixels: a highlighted plan must carry visibly coloured marks.
+const painted = await page.evaluate(() => {
+  const canvas = document.querySelector('.planview__canvas')
+  if (!canvas) return null
+  const ctx = canvas.getContext('2d')
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  let yellowish = 0
+  for (let i = 0; i < data.length; i += 4) {
+    const [r, g, b] = [data[i], data[i + 1], data[i + 2]]
+    // The highlighter is yellow: strong red and green, markedly less blue.
+    if (r > 180 && g > 150 && b < r - 60) yellowish++
+  }
+  return { yellowish, total: data.length / 4 }
+})
+console.log('highlighted pixels on the plan:', painted?.yellowish ?? 'canvas missing')
+if (!painted) errors.push('The plan canvas was not found')
+else if (painted.yellowish < 500) {
+  errors.push(`Expected the highlights to be visible on the plan, found ${painted.yellowish} coloured pixels`)
+}
 
 const rows = await page.locator('table.data tbody tr').count()
 console.log('rows in the extents table:', rows)
 if (rows < 2) errors.push(`Expected 2 highlighted extents listed, got ${rows}`)
+
+// Tapping a highlight must still select it, now that hit-testing is done
+// against the painted path rather than an SVG node.
+await page.getByRole('button', { name: 'Pan / zoom' }).click()
+await page.waitForTimeout(300)
+{
+  const planEl = page.locator('.planview')
+  await planEl.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  await page.waitForTimeout(300)
+  const b = await planEl.boundingBox()
+  await page.mouse.click(b.x + b.width * 0.4, b.y + b.height * 0.71)
+  await page.waitForTimeout(500)
+  const selected = await page.locator('table.data tbody tr[style*="surface-2"]').count()
+  console.log('region selected by tapping the plan:', selected > 0)
+  if (selected === 0) errors.push('Tapping a highlighted area on the plan did not select it')
+}
 
 // Pan/zoom must not draw. Switching back to view mode and dragging should move
 // the plan, not leave a stray mark.

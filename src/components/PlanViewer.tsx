@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Drawing, PlanPin, PlanRegion, RegionColour } from '../data/types'
 import { REGION_COLOURS, REGION_STROKE_FRACTION } from '../data/types'
 
@@ -33,42 +33,26 @@ interface Transform {
 
 type Point = { x: number; y: number }
 
-/**
- * Largest edge, in device pixels, the transformed plan is allowed to reach.
- *
- * The plan is a single CSS-transformed <img>, so the browser composites it as
- * one layer. Mobile GPUs cap textures at 4096-8192 px per side; going past that
- * makes the plan blank out or takes the whole tab down. A 2600 px plan at the
- * old fixed 12x ceiling became 31200 px tall — around 690 megapixels.
- */
-const MAX_LAYER_EDGE = 8192
-
-/** Second guard: total composited pixels, which is what actually costs memory. */
-const MAX_LAYER_PIXELS = 40e6
-
-/** Below this separation two touches are treated as one point, not a pinch. */
+/** Below this separation two touches are one point, not a pinch. */
 const MIN_PINCH_DISTANCE = 24
 
-/**
- * Highest safe zoom for a given plan. Scale 1 is one image pixel per CSS pixel,
- * so anything above 1 is already magnifying past the source resolution — the
- * ceiling only has to be generous relative to the fitted view, which for a large
- * plan on a phone is around 0.16.
- */
-function maxScaleFor(w: number, h: number): number {
-  if (!w || !h) return 1
-  const byEdge = MAX_LAYER_EDGE / Math.max(w, h)
-  const byArea = Math.sqrt(MAX_LAYER_PIXELS / (w * h))
-  return Math.max(1, Math.min(12, byEdge, byArea))
-}
+/** Zoom range, in image pixels per CSS pixel. */
+const MIN_SCALE = 0.02
+const MAX_SCALE = 16
 
 /**
  * Pan / zoom plan viewer with pin dropping and region highlighting.
  *
- * Deliberately hand-rolled on pointer events rather than a map library: it has
- * to work offline from a data URL, on a phone, with one finger for pan and two
- * for pinch, and to switch that same one-finger drag into a highlighter when
- * someone is marking up the extent of an ITP.
+ * The plan is painted into a canvas the size of the viewport rather than being
+ * a CSS-transformed <img>. That matters on site: a transformed image is
+ * composited as one layer covering the whole *scaled* drawing, so a 2600 px
+ * plan zoomed in became a layer tens of thousands of pixels per side — far past
+ * the 4096-8192 px texture limit on phone GPUs — and the tab was killed while
+ * panning around it. Drawing only the visible slice keeps memory flat at
+ * roughly one viewport whatever the zoom, so the ceiling can stay generous.
+ *
+ * Pins stay as DOM buttons: they are a constant size on screen, so they cost
+ * nothing and remain real, focusable, tappable controls.
  */
 export function PlanViewer({
   drawing,
@@ -86,8 +70,13 @@ export function PlanViewer({
   drawColour = 'yellow',
 }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const imageRef = useRef<HTMLImageElement | null>(null)
+
   const [t, setT] = useState<Transform>({ scale: 1, x: 0, y: 0 })
   const [size, setSize] = useState({ w: drawing.imageWidth ?? 1000, h: drawing.imageHeight ?? 700 })
+  const [box, setBox] = useState({ w: 0, h: 0 })
+  const [ready, setReady] = useState(false)
 
   // Pointer bookkeeping: one pointer pans or draws, two always pinch.
   const pointers = useRef(new Map<number, Point>())
@@ -99,58 +88,198 @@ export function PlanViewer({
 
   const drawingMode = mode === 'highlight' || mode === 'area'
 
-  const maxScale = useMemo(() => maxScaleFor(size.w, size.h), [size.w, size.h])
-
-  /** Keeps every zoom path inside the safe range, and never returns NaN. */
   const clampScale = useCallback(
-    (value: number) => {
-      if (!Number.isFinite(value)) return maxScale
-      return Math.min(maxScale, Math.max(0.02, value))
-    },
-    [maxScale],
+    (value: number) => (Number.isFinite(value) ? Math.min(MAX_SCALE, Math.max(MIN_SCALE, value)) : MIN_SCALE),
+    [],
   )
 
-  const fit = useCallback(
-    (w = size.w, h = size.h) => {
-      const el = wrapRef.current
-      if (!el || !w || !h) return
+  /* -------------------------------------------------------------- sizing */
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const measure = () => {
       const rect = el.getBoundingClientRect()
-      // The viewer can be measured before layout settles; a zero-sized box would
-      // otherwise produce scale 0 and divide by zero on the next zoom.
-      if (rect.width < 1 || rect.height < 1) return
-      const scale = Math.min(rect.width / w, rect.height / h)
-      if (!Number.isFinite(scale) || scale <= 0) return
-      setT({ scale, x: (rect.width - w * scale) / 2, y: (rect.height - h * scale) / 2 })
+      setBox({ w: rect.width, h: rect.height })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const fit = useCallback(() => {
+    if (size.w < 1 || size.h < 1 || box.w < 1 || box.h < 1) return
+    const scale = Math.min(box.w / size.w, box.h / size.h)
+    if (!Number.isFinite(scale) || scale <= 0) return
+    setT({ scale, x: (box.w - size.w * scale) / 2, y: (box.h - size.h * scale) / 2 })
+  }, [size.w, size.h, box.w, box.h])
+
+  // Load the plan once per drawing.
+  useEffect(() => {
+    if (!drawing.imageData) {
+      imageRef.current = null
+      setReady(false)
+      return
+    }
+    let cancelled = false
+    const img = new Image()
+    img.onload = () => {
+      if (cancelled) return
+      imageRef.current = img
+      setSize({ w: img.naturalWidth, h: img.naturalHeight })
+      setReady(true)
+    }
+    img.onerror = () => {
+      if (!cancelled) setReady(false)
+    }
+    img.src = drawing.imageData
+    return () => {
+      cancelled = true
+    }
+  }, [drawing.id, drawing.imageData])
+
+  // Fit whenever the plan or the viewport changes shape — but not on every
+  // transform change, which would fight the user mid-gesture.
+  useEffect(() => {
+    if (!ready) return
+    fit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, size.w, size.h, box.w, box.h])
+
+  /* ------------------------------------------------------------- drawing */
+
+  const strokeWidth = Math.max(size.w, size.h) * REGION_STROKE_FRACTION
+
+  /** Builds a region's path in screen coordinates. */
+  const regionPath = useCallback(
+    (region: Pick<PlanRegion, 'kind' | 'points'>, tr: Transform): Path2D | null => {
+      const path = new Path2D()
+      const sx = (p: Point) => tr.x + p.x * size.w * tr.scale
+      const sy = (p: Point) => tr.y + p.y * size.h * tr.scale
+
+      if (region.kind === 'area') {
+        const [a, b] = region.points
+        if (!a || !b) return null
+        path.rect(Math.min(sx(a), sx(b)), Math.min(sy(a), sy(b)), Math.abs(sx(b) - sx(a)), Math.abs(sy(b) - sy(a)))
+        return path
+      }
+
+      if (region.points.length < 2) return null
+      region.points.forEach((p, i) => (i === 0 ? path.moveTo(sx(p), sy(p)) : path.lineTo(sx(p), sy(p))))
+      return path
     },
     [size.w, size.h],
   )
 
-  useEffect(() => {
-    if (!drawing.imageData) return
-    const img = new Image()
-    img.onload = () => {
-      setSize({ w: img.naturalWidth, h: img.naturalHeight })
-      fit(img.naturalWidth, img.naturalHeight)
-    }
-    img.src = drawing.imageData
-    // Refit whenever a different drawing is shown.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawing.id, drawing.imageData])
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current
+    const img = imageRef.current
+    if (!canvas || box.w < 1 || box.h < 1) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-  useEffect(() => {
-    const onResize = () => fit()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [fit])
+    // Cap the backing store so a high-DPR tablet cannot blow the budget either.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const cw = Math.round(box.w * dpr)
+    const ch = Math.round(box.h * dpr)
+    if (canvas.width !== cw || canvas.height !== ch) {
+      canvas.width = cw
+      canvas.height = ch
+    }
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, box.w, box.h)
+    ctx.fillStyle = '#eef2f6'
+    ctx.fillRect(0, 0, box.w, box.h)
+
+    if (img) {
+      // Only the visible slice of the plan is drawn, which is what keeps memory
+      // flat however far in the user zooms.
+      const sx = Math.max(0, -t.x / t.scale)
+      const sy = Math.max(0, -t.y / t.scale)
+      const sw = Math.min(size.w - sx, box.w / t.scale)
+      const sh = Math.min(size.h - sy, box.h / t.scale)
+      if (sw > 0 && sh > 0) {
+        ctx.imageSmoothingEnabled = t.scale < 1
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(img, sx, sy, sw, sh, t.x + sx * t.scale, t.y + sy * t.scale, sw * t.scale, sh * t.scale)
+      }
+    }
+
+    const screenStroke = strokeWidth * t.scale
+
+    const paint = (region: Pick<PlanRegion, 'kind' | 'points' | 'colour' | 'label'>, selected: boolean) => {
+      const colour = REGION_COLOURS[region.colour] ?? REGION_COLOURS.yellow
+      const path = regionPath(region, t)
+      if (!path) return
+
+      if (region.kind === 'area') {
+        ctx.fillStyle = colour.fill
+        ctx.fill(path)
+        ctx.strokeStyle = colour.stroke
+        ctx.lineWidth = Math.max(1, screenStroke * (selected ? 0.5 : 0.3))
+        ctx.setLineDash(selected ? [screenStroke, screenStroke * 0.6] : [])
+        ctx.stroke(path)
+        ctx.setLineDash([])
+      } else {
+        ctx.strokeStyle = colour.fill
+        ctx.lineWidth = Math.max(2, screenStroke * (selected ? 1.35 : 1))
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.stroke(path)
+        if (selected) {
+          ctx.strokeStyle = colour.stroke
+          ctx.lineWidth = Math.max(1, screenStroke * 0.16)
+          ctx.setLineDash([screenStroke * 0.6, screenStroke * 0.5])
+          ctx.stroke(path)
+          ctx.setLineDash([])
+        }
+      }
+
+      const first = region.points[0]
+      if (region.label && first) {
+        const lx = t.x + first.x * size.w * t.scale
+        const ly = t.y + first.y * size.h * t.scale
+        const fontSize = Math.max(11, Math.min(28, screenStroke * 1.3))
+        ctx.font = `700 ${fontSize}px system-ui, sans-serif`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'alphabetic'
+        const ty = region.kind === 'area' ? ly + fontSize * 1.1 : ly - fontSize * 0.5
+        ctx.lineWidth = Math.max(2, fontSize * 0.28)
+        ctx.strokeStyle = '#ffffff'
+        ctx.strokeText(region.label, lx + 2, ty)
+        ctx.fillStyle = colour.stroke
+        ctx.fillText(region.label, lx + 2, ty)
+      }
+    }
+
+    for (const region of regions) paint(region, region.id === selectedRegionId)
+    if (draft && draft.length > 0) {
+      paint({ kind: mode === 'area' ? 'area' : 'highlight', points: draft, colour: drawColour, label: '' }, false)
+    }
+  }, [box.w, box.h, t, size.w, size.h, regions, draft, drawColour, mode, selectedRegionId, strokeWidth, regionPath])
+
+  // Painting in a layout effect keeps the plan in step with the pins, which
+  // React lays out in the same commit.
+  useLayoutEffect(() => {
+    draw()
+    // Exposed for the pinch regression test, which needs the live zoom now that
+    // there is no transform on an element to read it back from.
+    ;(window as unknown as { __planScale?: number }).__planScale = t.scale
+  }, [draw, t.scale])
+
+  /* ------------------------------------------------------------ geometry */
 
   /** Screen coordinates to normalised 0..1 position on the drawing. */
   const toPlan = (clientX: number, clientY: number): Point | null => {
     const el = wrapRef.current
-    if (!el) return null
+    if (!el || !size.w || !size.h || !t.scale) return null
     const rect = el.getBoundingClientRect()
-    const px = (clientX - rect.left - t.x) / t.scale
-    const py = (clientY - rect.top - t.y) / t.scale
-    return { x: px / size.w, y: py / size.h }
+    return {
+      x: (clientX - rect.left - t.x) / t.scale / size.w,
+      y: (clientY - rect.top - t.y) / t.scale / size.h,
+    }
   }
 
   const zoomAt = (factor: number, clientX?: number, clientY?: number) => {
@@ -167,8 +296,43 @@ export function PlanViewer({
     })
   }
 
+  /** Topmost region under a tap, now that regions are painted rather than DOM. */
+  const regionAt = (clientX: number, clientY: number): PlanRegion | null => {
+    const canvas = canvasRef.current
+    const el = wrapRef.current
+    if (!canvas || !el) return null
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    const rect = el.getBoundingClientRect()
+    // isPointInPath takes coordinates in the canvas backing store, unaffected by
+    // the current transform — while the paths are built in CSS pixels and are
+    // scaled by it. Without converting, hit-testing silently misses on every
+    // high-DPR screen, which is every phone.
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const px = (clientX - rect.left) * dpr
+    const py = (clientY - rect.top) * dpr
+
+    for (let i = regions.length - 1; i >= 0; i--) {
+      const region = regions[i]
+      const path = regionPath(region, t)
+      if (!path) continue
+      if (region.kind === 'area') {
+        if (ctx.isPointInPath(path, px, py)) return region
+      } else {
+        // A generous hit width: a highlighter stroke is thin when zoomed out.
+        ctx.lineWidth = Math.max(16, strokeWidth * t.scale)
+        if (ctx.isPointInStroke(path, px, py)) return region
+      }
+    }
+    return null
+  }
+
+  /* ------------------------------------------------------------ gestures */
+
   const onPointerDown = (e: React.PointerEvent) => {
-    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    // Capture on the viewer itself, not the event target: the canvas repaints
+    // constantly and a capture held by a replaced node is silently lost.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
     moved.current = false
 
@@ -189,13 +353,10 @@ export function PlanViewer({
       setDraft(null)
       const [a, b] = [...pointers.current.values()]
       const dist = Math.hypot(a.x - b.x, a.y - b.y)
-      // Two fingers landing on the same spot — a thumb and forefinger planted
-      // together — gave a baseline of zero, so the first move divided by zero
-      // and slammed the plan to maximum zoom. Wait for real separation instead.
+      // Two fingers landing on the same spot would give a baseline of zero and
+      // divide by zero on the first move, slamming the plan to maximum zoom.
       pinchStart.current =
-        dist >= MIN_PINCH_DISTANCE
-          ? { dist, scale: t.scale, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }
-          : null
+        dist >= MIN_PINCH_DISTANCE ? { dist, scale: t.scale, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 } : null
       panStart.current = null
     }
   }
@@ -241,7 +402,7 @@ export function PlanViewer({
         // Thin the traced path: at screen resolution anything closer than this
         // adds points without adding shape.
         const last = prev[prev.length - 1]
-        const far = Math.hypot((p.x - last.x) * size.w, (p.y - last.y) * size.h) > 4 / t.scale
+        const far = Math.hypot((p.x - last.x) * size.w, (p.y - last.y) * size.h) * t.scale > 3
         return far ? [...prev, p] : prev
       })
       return
@@ -279,10 +440,17 @@ export function PlanViewer({
       return
     }
 
-    // A tap that did not pan is a pin placement.
-    if (wasSingle && !moved.current && mode === 'pin' && onDropPin) {
+    if (!wasSingle || moved.current) return
+
+    // A tap that did not pan: drop a pin, or select a region under the finger.
+    if (mode === 'pin' && onDropPin) {
       const p = toPlan(e.clientX, e.clientY)
       if (p && p.x >= 0 && p.y >= 0 && p.x <= 1 && p.y <= 1) onDropPin(p.x, p.y)
+      return
+    }
+    if (onSelectRegion) {
+      const region = regionAt(e.clientX, e.clientY)
+      if (region) onSelectRegion(region)
     }
   }
 
@@ -298,9 +466,10 @@ export function PlanViewer({
   }
 
   const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
     zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY)
   }
+
+  /* -------------------------------------------------------------- render */
 
   if (!drawing.imageData) {
     return (
@@ -310,7 +479,6 @@ export function PlanViewer({
     )
   }
 
-  const strokeWidth = Math.max(size.w, size.h) * REGION_STROKE_FRACTION
   const cursor = mode === 'pin' ? 'crosshair' : drawingMode ? 'cell' : 'grab'
 
   return (
@@ -325,66 +493,25 @@ export function PlanViewer({
       onLostPointerCapture={onLostPointerCapture}
       onWheel={onWheel}
     >
-      <div
-        className="planview__inner"
-        style={{ transform: `translate(${t.x}px, ${t.y}px) scale(${t.scale})`, width: size.w, height: size.h }}
-      >
-        <img src={drawing.imageData} alt={`Plan ${drawing.number}`} width={size.w} height={size.h} draggable={false} />
+      <canvas
+        ref={canvasRef}
+        className="planview__canvas"
+        aria-label={`Plan ${drawing.number}`}
+        role="img"
+      />
 
-        {/* Regions sit between the plan and the pins so pins stay tappable. */}
-        <svg
-          width={size.w}
-          height={size.h}
-          viewBox={`0 0 ${size.w} ${size.h}`}
-          style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
-          aria-hidden="true"
-        >
-          {regions.map((r) => (
-            <RegionShape
-              key={r.id}
-              region={r}
-              w={size.w}
-              h={size.h}
-              strokeWidth={strokeWidth}
-              selected={r.id === selectedRegionId}
-              onSelect={onSelectRegion}
-            />
-          ))}
-          {draft && draft.length > 0 ? (
-            <RegionShape
-              region={{
-                id: 'draft',
-                drawingId: drawing.id,
-                kind: mode === 'area' ? 'area' : 'highlight',
-                points: draft,
-                colour: drawColour,
-                label: '',
-                createdAt: 0,
-              }}
-              w={size.w}
-              h={size.h}
-              strokeWidth={strokeWidth}
-            />
-          ) : null}
-        </svg>
-
-        {pins.map((pin) => {
-          const photos = photoCounts[pin.id] ?? 0
-          return (
+      {pins.map((pin) => {
+        const photos = photoCounts[pin.id] ?? 0
+        const left = t.x + pin.x * size.w * t.scale
+        const top = t.y + pin.y * size.h * t.scale
+        // Keep offscreen pins out of the DOM; a big drawing can carry a lot.
+        if (left < -60 || top < -60 || left > box.w + 60 || top > box.h + 60) return null
+        return (
           <button
             key={pin.id}
             className="pin"
             title={`${pin.note || pin.label}${photos ? ` — ${photos} photo${photos > 1 ? 's' : ''}` : ''}`}
-            style={{
-              left: `${pin.x * 100}%`,
-              top: `${pin.y * 100}%`,
-              // Counter-scale so pins stay a constant size as the plan zooms.
-              transform: `translate(-50%, -100%) scale(${1 / t.scale})`,
-              transformOrigin: 'bottom center',
-              border: 0,
-              background: 'none',
-              padding: 0,
-            }}
+            style={{ left, top, border: 0, background: 'none', padding: 0 }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
@@ -403,15 +530,7 @@ export function PlanViewer({
               {photos ? (
                 <>
                   <circle cx="24" cy="7" r="6.5" fill="#15803d" stroke="#fff" strokeWidth="2" />
-                  <text
-                    x="24"
-                    y="10.2"
-                    textAnchor="middle"
-                    fontSize="8"
-                    fontWeight="700"
-                    fill="#fff"
-                    stroke="none"
-                  >
+                  <text x="24" y="10.2" textAnchor="middle" fontSize="8" fontWeight="700" fill="#fff" stroke="none">
                     {photos > 9 ? '9+' : photos}
                   </text>
                 </>
@@ -419,9 +538,8 @@ export function PlanViewer({
             </svg>
             <span className="pin__label">{pin.label}</span>
           </button>
-          )
-        })}
-      </div>
+        )
+      })}
 
       <div className="planview__zoom">
         <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={() => zoomAt(1.3)} aria-label="Zoom in">
@@ -433,7 +551,7 @@ export function PlanViewer({
         <button
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => fit()}
+          onClick={fit}
           aria-label="Fit to view"
           style={{ fontSize: 12, fontWeight: 700 }}
         >
@@ -441,114 +559,5 @@ export function PlanViewer({
         </button>
       </div>
     </div>
-  )
-}
-
-/** One highlighted extent, drawn in the plan's own pixel space. */
-function RegionShape({
-  region,
-  w,
-  h,
-  strokeWidth,
-  selected,
-  onSelect,
-}: {
-  region: PlanRegion
-  w: number
-  h: number
-  strokeWidth: number
-  selected?: boolean
-  onSelect?: (region: PlanRegion) => void
-}) {
-  const colour = REGION_COLOURS[region.colour] ?? REGION_COLOURS.yellow
-  const interactive = onSelect
-    ? { pointerEvents: 'auto' as const, cursor: 'pointer' }
-    : { pointerEvents: 'none' as const }
-
-  const handlers = onSelect
-    ? {
-        onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
-        onClick: (e: React.MouseEvent) => {
-          e.stopPropagation()
-          onSelect(region)
-        },
-      }
-    : {}
-
-  if (region.kind === 'area') {
-    const [a, b] = region.points
-    if (!a || !b) return null
-    const x = Math.min(a.x, b.x) * w
-    const y = Math.min(a.y, b.y) * h
-    const rw = Math.abs(b.x - a.x) * w
-    const rh = Math.abs(b.y - a.y) * h
-    return (
-      <g style={interactive} {...handlers}>
-        <rect
-          x={x}
-          y={y}
-          width={rw}
-          height={rh}
-          fill={colour.fill}
-          stroke={colour.stroke}
-          strokeWidth={selected ? strokeWidth * 0.5 : strokeWidth * 0.3}
-          strokeDasharray={selected ? `${strokeWidth} ${strokeWidth * 0.6}` : undefined}
-        />
-        {region.label ? (
-          <text
-            x={x + strokeWidth * 0.4}
-            y={y + strokeWidth * 1.4}
-            fontSize={strokeWidth * 1.3}
-            fontWeight="700"
-            fill={colour.stroke}
-            stroke="#fff"
-            strokeWidth={strokeWidth * 0.12}
-            paintOrder="stroke"
-          >
-            {region.label}
-          </text>
-        ) : null}
-      </g>
-    )
-  }
-
-  const d = region.points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x * w} ${p.y * h}`).join(' ')
-  const first = region.points[0]
-  return (
-    <g style={interactive} {...handlers}>
-      <path
-        d={d}
-        fill="none"
-        stroke={colour.fill}
-        strokeWidth={selected ? strokeWidth * 1.35 : strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {selected ? (
-        <path
-          d={d}
-          fill="none"
-          stroke={colour.stroke}
-          strokeWidth={strokeWidth * 0.16}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeDasharray={`${strokeWidth * 0.6} ${strokeWidth * 0.5}`}
-        />
-      ) : null}
-      {region.label && first ? (
-        <text
-          x={first.x * w}
-          y={first.y * h - strokeWidth * 0.7}
-          fontSize={strokeWidth * 1.3}
-          fontWeight="700"
-          fill={colour.stroke}
-          stroke="#fff"
-          strokeWidth={strokeWidth * 0.12}
-          paintOrder="stroke"
-        >
-          {region.label}
-        </text>
-      ) : null}
-    </g>
   )
 }

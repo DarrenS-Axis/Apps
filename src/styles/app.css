@@ -726,20 +726,19 @@ textarea:focus {
   cursor: crosshair;
 }
 
-.planview__inner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  transform-origin: 0 0;
-}
-
-.planview__inner img {
+/* The plan is painted here rather than being a transformed <img>, so the
+   composited layer is always one viewport regardless of zoom. */
+.planview__canvas {
   display: block;
-  max-width: none;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
 }
 
 .pin {
   position: absolute;
+  /* Positioned in screen coordinates by the viewer, so the pin stays a constant
+     size at any zoom without a counter-scale. */
   transform: translate(-50%, -100%);
   pointer-events: auto;
   cursor: pointer;

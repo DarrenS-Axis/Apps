@@ -93,9 +93,29 @@ await page.getByRole('button', { name: /^Plans \(/ }).click()
 await page.waitForTimeout(900)
 await shot('05-plan-in-itp')
 
-const planVisible = await page.locator('.planview img').count()
-console.log('plan rendered in ITP:', planVisible)
-if (planVisible === 0) errors.push('Imported PDF plan did not render in the ITP plans tab')
+// The plan is painted onto a canvas, so "did it render" means the canvas has
+// actual drawing on it rather than the empty backdrop.
+const planPainted = await page.evaluate(() => {
+  const canvas = document.querySelector('.planview__canvas')
+  if (!canvas) return null
+  const { data } = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
+  const backdrop = [0xee, 0xf2, 0xf6]
+  let drawn = 0
+  for (let i = 0; i < data.length; i += 4) {
+    if (
+      Math.abs(data[i] - backdrop[0]) > 12 ||
+      Math.abs(data[i + 1] - backdrop[1]) > 12 ||
+      Math.abs(data[i + 2] - backdrop[2]) > 12
+    ) {
+      drawn++
+    }
+  }
+  return drawn
+})
+console.log('plan pixels painted in ITP:', planPainted)
+if (!planPainted || planPainted < 1000) {
+  errors.push(`Imported PDF plan did not render in the ITP plans tab (${planPainted} painted pixels)`)
+}
 
 await page.getByRole('button', { name: 'Drop pin' }).click()
 await page.waitForTimeout(300)

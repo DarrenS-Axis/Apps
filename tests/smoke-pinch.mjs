@@ -67,18 +67,26 @@ const cdp = await ctx.newCDPSession(page)
 const touch = (type, points) =>
   cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p, i) => ({ ...p, id: i + 1 })) })
 
-/** Composited size of the plan at the current zoom. */
+/**
+ * Size of the surface the browser actually composites for the plan, and the
+ * current zoom. With the canvas viewer this must stay at one viewport however
+ * far in the user zooms — that is the whole point of the change.
+ */
 const layer = () =>
   page.evaluate(() => {
-    const img = document.querySelector('.planview__inner img')
-    const inner = document.querySelector('.planview__inner')
-    if (!img || !inner) return null
-    const m = new DOMMatrix(getComputedStyle(inner).transform)
-    return { w: img.naturalWidth * m.a, h: img.naturalHeight * m.d, scale: m.a }
+    const canvas = document.querySelector('.planview__canvas')
+    if (!canvas) return null
+    const scale = window.__planScale ?? 1
+    return { w: canvas.width, h: canvas.height, scale }
   })
 
+/** A cheap fingerprint of the painted plan, to tell whether panning moved it. */
 const transform = () =>
-  page.evaluate(() => getComputedStyle(document.querySelector('.planview__inner')).transform)
+  page.evaluate(() => {
+    const canvas = document.querySelector('.planview__canvas')
+    if (!canvas) return 'none'
+    return canvas.toDataURL('image/jpeg', 0.4).slice(-160)
+  })
 
 function check(label, l) {
   if (!l) {

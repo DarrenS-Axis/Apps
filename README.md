@@ -161,7 +161,8 @@ src/
     format.ts             dates, progress, hold-point blocking, status derivation
     pdf.ts                ITP and register PDF export
   components/
-    PlanViewer.tsx        pan / pinch-zoom plan, pin placement and region markup
+    PlanViewer.tsx        canvas plan renderer — pan, pinch, pins and region markup
+    ErrorBoundary.tsx     keeps one broken screen from blanking the whole app
     PhotoCapture.tsx      camera and gallery capture, grid, lightbox
     ui.tsx                icons, sheets, fields, signature pad, toasts
   pages/                  one file per screen
@@ -181,13 +182,19 @@ detaches the photo instead of destroying evidence. Dropping a pin creates it imm
 and opens one sheet holding its label, note and camera — an earlier version showed a
 placement dialog and then a detail dialog with the same fields twice.
 
-**Zoom limits.** The plan is one CSS-transformed image, so the browser composites it as a
-single layer. Mobile GPUs cap textures at 4096-8192 px per side, and an unbounded ceiling
-turned a 2600 px plan into a 31200 px layer — around 690 megapixels — which took the tab
-down on a phone while desktop tiled its way through it. The maximum zoom is now derived
-from the plan's own dimensions, bounded by both edge length and total pixels. Scale 1 is
-already one image pixel per CSS pixel, so the ceiling only has to be generous relative to
-the fitted view, which for a large plan on a phone is about 0.16.
+**The plan is drawn on a canvas, not scaled as an image.** This is the fix for a crash
+reported from site. A CSS-transformed `<img>` is composited as one layer covering the whole
+*scaled* drawing, so a 2600 px plan zoomed in became a layer tens of thousands of pixels
+per side — around 690 megapixels — far past the 4096-8192 px texture limit on phone GPUs.
+The tab was killed, first while pinching and then while panning around at zoom. Desktop
+tiles its way through it, which is why it took a report from a phone to surface.
+
+The viewer now paints only the visible slice of the plan into a canvas the size of the
+viewport, so the composited surface is one screen whatever the zoom and memory stays flat.
+Zoom quality improved as a side effect: the visible region is drawn at native resolution
+rather than being a magnified bitmap. Pins remain DOM buttons — they are a constant size on
+screen, so they cost nothing and stay real, focusable controls — while highlights are
+painted and hit-tested against their own path.
 
 **Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
 a highlight stays put whatever resolution the plan was rendered at and whatever the device
@@ -235,9 +242,9 @@ see `tests/README.md`):
 - **pin photos** — photos captured at a pin, the count shown on the plan, an existing photo
   reassigned to a pin, the pin credited in the exported PDF, and the evidence kept when the
   pin is removed.
-- **pinch** — real two-finger touch events on a large plan: the composited layer stays
-  inside the GPU texture limit however hard it is pinched, two fingers landing on the same
-  spot do not jump the zoom, and the plan still pans after one finger is lifted mid-pinch.
+- **pinch** — real two-finger touch events on a large plan: the composited surface stays
+  one viewport however hard it is pinched, two fingers landing on the same spot do not jump
+  the zoom, and the plan still pans after one finger is lifted mid-pinch.
 - **offline** — the service worker activates, the bundle is genuinely precached (not just
   reachable), the app survives a reload with the network fully cut, and all 42 templates
   stay available with no signal.
