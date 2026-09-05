@@ -8,6 +8,8 @@ export type PlanMode = 'view' | 'pin' | 'highlight' | 'area'
 interface Props {
   drawing: Drawing
   pins: PlanPin[]
+  /** How many photos hang off each pin, keyed by pin id. */
+  photoCounts?: Record<string, number>
   regions?: PlanRegion[]
   /** Fires with normalised 0..1 coordinates when the user taps in `pin` mode. */
   onDropPin?: (x: number, y: number) => void
@@ -42,6 +44,7 @@ type Point = { x: number; y: number }
 export function PlanViewer({
   drawing,
   pins,
+  photoCounts = {},
   regions = [],
   onDropPin,
   onDrawRegion,
@@ -289,11 +292,13 @@ export function PlanViewer({
           ) : null}
         </svg>
 
-        {pins.map((pin) => (
+        {pins.map((pin) => {
+          const photos = photoCounts[pin.id] ?? 0
+          return (
           <button
             key={pin.id}
             className="pin"
-            title={pin.note || pin.label}
+            title={`${pin.note || pin.label}${photos ? ` — ${photos} photo${photos > 1 ? 's' : ''}` : ''}`}
             style={{
               left: `${pin.x * 100}%`,
               top: `${pin.y * 100}%`,
@@ -317,10 +322,29 @@ export function PlanViewer({
                 stroke="#fff"
                 strokeWidth="2"
               />
+              {/* A pin carrying photos gets a badge, so the plan shows at a
+                  glance where evidence was actually captured. */}
+              {photos ? (
+                <>
+                  <circle cx="24" cy="7" r="6.5" fill="#15803d" stroke="#fff" strokeWidth="2" />
+                  <text
+                    x="24"
+                    y="10.2"
+                    textAnchor="middle"
+                    fontSize="8"
+                    fontWeight="700"
+                    fill="#fff"
+                    stroke="none"
+                  >
+                    {photos > 9 ? '9+' : photos}
+                  </text>
+                </>
+              ) : null}
             </svg>
             <span className="pin__label">{pin.label}</span>
           </button>
-        ))}
+          )
+        })}
       </div>
 
       <div className="planview__zoom">

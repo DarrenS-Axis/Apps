@@ -202,10 +202,12 @@ export interface Photo {
   accuracy?: number
   /** Who captured it. */
   by?: string
-  /** Optional drawing pin recording where on the plan this was taken. */
-  drawingId?: string
-  pinX?: number
-  pinY?: number
+  /**
+   * Plan pin this photo was taken at, if any. The pin owns the location, so
+   * the photo only needs to name it — moving or relabelling a pin does not
+   * leave the photo pointing at stale coordinates.
+   */
+  pinId?: string
 }
 
 /* -------------------------------------------------------------- templates */

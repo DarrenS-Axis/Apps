@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteItp, duplicateItp, updateItp, uid } from '../data/db'
+import { deleteItp, deletePin, duplicateItp, updateItp, uid } from '../data/db'
 import { useDrawings, useItp, usePhotos, usePhotosByItem, useProject, useSettings } from '../data/store'
-import type { Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour } from '../data/types'
+import type { Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour, Settings } from '../data/types'
 import { POINT_TYPES, ITP_STATUS_LABEL, REGION_COLOURS } from '../data/types'
 import {
   ConfirmButton,
@@ -193,7 +193,9 @@ export function ItpPage() {
       ) : null}
 
       {tab === 'materials' ? <MaterialsTab itp={itp} onToast={showToast} /> : null}
-      {tab === 'plans' ? <PlansTab itp={itp} projectId={projectId!} onToast={showToast} /> : null}
+      {tab === 'plans' ? (
+        <PlansTab itp={itp} projectId={projectId!} onToast={showToast} onOpenPhoto={setViewing} />
+      ) : null}
       {tab === 'signoff' ? <SignOffTab itp={itp} onToast={showToast} /> : null}
 
       <div className="section-title">
@@ -708,13 +710,24 @@ function MaterialsTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void
 
 /* ----------------------------------------------------------------- plans */
 
-function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; onToast: (m: string) => void }) {
+function PlansTab({
+  itp,
+  projectId,
+  onToast,
+  onOpenPhoto,
+}: {
+  itp: Itp
+  projectId: string
+  onToast: (m: string) => void
+  onOpenPhoto: (photo: Photo) => void
+}) {
   const drawings = useDrawings(projectId)
+  const settings = useSettings()
+  const photos = usePhotos(itp.id)
   const linked = drawings.filter((d) => itp.drawingIds.includes(d.id))
   const [activeId, setActiveId] = useState<string | undefined>(linked[0]?.id)
   const [mode, setMode] = useState<PlanMode>('view')
   const [colour, setColour] = useState<RegionColour>('yellow')
-  const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
   const [pendingRegion, setPendingRegion] = useState<{
     kind: 'highlight' | 'area'
     points: { x: number; y: number }[]
@@ -729,6 +742,43 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
 
   const savePins = (next: PlanPin[]) => updateItp(itp.id, { pins: next })
   const saveRegions = (next: PlanRegion[]) => updateItp(itp.id, { regions: next })
+
+  const photosByPin = useMemo(() => {
+    const map: Record<string, Photo[]> = {}
+    for (const p of photos) {
+      if (!p.pinId) continue
+      ;(map[p.pinId] ??= []).push(p)
+    }
+    for (const list of Object.values(map)) list.sort((a, b) => a.takenAt - b.takenAt)
+    return map
+  }, [photos])
+
+  const photoCounts = useMemo(
+    () => Object.fromEntries(Object.entries(photosByPin).map(([id, list]) => [id, list.length])),
+    [photosByPin],
+  )
+
+  /**
+   * A tap in pin mode is deliberate, so the pin is created straight away and its
+   * detail sheet opens — label, item, note and the camera are all in there, and
+   * taking a photo at the pin you just dropped is the usual next step. A pin
+   * added by mistake is removed from the same sheet.
+   */
+  const dropPin = async (x: number, y: number) => {
+    if (!active) return
+    const pin: PlanPin = {
+      id: uid('pin'),
+      drawingId: active.id,
+      x,
+      y,
+      label: String(itp.pins.length + 1),
+      createdAt: Date.now(),
+    }
+    await savePins([...itp.pins, pin])
+    setMode('view')
+    setSelectedPin(pin)
+    onToast('Pin dropped — add a note or photos')
+  }
 
   if (drawings.length === 0) {
     return (
@@ -856,12 +906,13 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
             <PlanViewer
               drawing={active}
               pins={pins}
+              photoCounts={photoCounts}
               regions={regions}
               mode={mode}
               drawColour={colour}
               selectedPinId={selectedPin?.id}
               selectedRegionId={selectedRegion?.id}
-              onDropPin={(x, y) => setPendingPin({ x, y })}
+              onDropPin={(x, y) => void dropPin(x, y)}
               onDrawRegion={(kind, points) => setPendingRegion({ kind, points })}
               onSelectPin={(p) => {
                 setSelectedPin(p)
@@ -944,25 +995,28 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
                         <th>Pin</th>
                         <th>Item</th>
                         <th>Note</th>
+                        <th>Photos</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
                       {pins.map((p) => (
-                        <tr key={p.id}>
+                        <tr key={p.id} style={{ background: p.id === selectedPin?.id ? 'var(--surface-2)' : undefined }}>
                           <td className="mono">{p.label}</td>
                           <td>{p.itemNo ? `Item ${p.itemNo}` : '—'}</td>
                           <td>{p.note || '—'}</td>
                           <td>
-                            <button
-                              className="btn btn--ghost btn--sm"
-                              type="button"
-                              onClick={() => {
-                                void savePins(itp.pins.filter((x) => x.id !== p.id))
-                                onToast('Pin removed')
-                              }}
-                            >
-                              Remove
+                            {photoCounts[p.id] ? (
+                              <span className="chip chip--ok">
+                                {photoCounts[p.id]} photo{photoCounts[p.id] > 1 ? 's' : ''}
+                              </span>
+                            ) : (
+                              <span className="muted small">none</span>
+                            )}
+                          </td>
+                          <td>
+                            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setSelectedPin(p)}>
+                              Open
                             </button>
                           </td>
                         </tr>
@@ -982,26 +1036,16 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
         </div>
       )}
 
-      {pendingPin && active ? (
-        <PinSheet
+      {selectedPin ? (
+        <PinDetailSheet
           itp={itp}
-          onClose={() => setPendingPin(null)}
-          onSave={async (label, itemNo, note) => {
-            const pin: PlanPin = {
-              id: uid('pin'),
-              drawingId: active.id,
-              x: pendingPin.x,
-              y: pendingPin.y,
-              label,
-              itemNo,
-              note,
-              createdAt: Date.now(),
-            }
-            await savePins([...itp.pins, pin])
-            setPendingPin(null)
-            setMode('view')
-            onToast('Location marked on plan')
-          }}
+          pin={itp.pins.find((p) => p.id === selectedPin.id) ?? selectedPin}
+          settings={settings}
+          photos={photosByPin[selectedPin.id] ?? []}
+          onClose={() => setSelectedPin(null)}
+          onOpenPhoto={onOpenPhoto}
+          onToast={onToast}
+          onRemoved={() => setSelectedPin(null)}
         />
       ) : null}
 
@@ -1096,32 +1140,62 @@ function RegionSheet({
   )
 }
 
-function PinSheet({
+/**
+ * Everything recorded at one pin: what it is, and the photographic evidence
+ * captured there. Photos taken from here are stamped with the pin reference, so
+ * a print of the photo still says where it was taken.
+ */
+function PinDetailSheet({
   itp,
+  pin,
+  settings,
+  photos,
   onClose,
-  onSave,
+  onOpenPhoto,
+  onToast,
+  onRemoved,
 }: {
   itp: Itp
+  pin: PlanPin
+  settings: Settings
+  photos: Photo[]
   onClose: () => void
-  onSave: (label: string, itemNo: string | undefined, note: string) => Promise<void>
+  onOpenPhoto: (photo: Photo) => void
+  onToast: (m: string) => void
+  onRemoved: () => void
 }) {
-  const [itemNo, setItemNo] = useState('')
-  const [label, setLabel] = useState(String(itp.pins.length + 1))
-  const [note, setNote] = useState('')
+  const [label, setLabel] = useState(pin.label)
+  const [itemNo, setItemNo] = useState(pin.itemNo ?? '')
+  const [note, setNote] = useState(pin.note ?? '')
+
+  const savePin = async (changes: Partial<PlanPin>) => {
+    const known = itp.pins.some((p) => p.id === pin.id)
+    await updateItp(itp.id, {
+      pins: known
+        ? itp.pins.map((p) => (p.id === pin.id ? { ...p, ...changes } : p))
+        : // The pin was created moments ago and this render has not seen it yet.
+          [...itp.pins, { ...pin, ...changes }],
+    })
+  }
 
   return (
-    <Sheet title="Mark location on plan" onClose={onClose}>
+    <Sheet title={`Pin ${pin.label}`} onClose={onClose}>
       <div className="stack">
         <div className="field-grid">
-          <Field label="Pin label" hint="Shown inside the pin — keep it short.">
-            <input type="text" value={label} onChange={(e) => setLabel(e.target.value.slice(0, 4))} />
+          <Field label="Pin label">
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value.slice(0, 4))}
+              onBlur={() => void savePin({ label: label || pin.label })}
+            />
           </Field>
           <Field label="Relates to item">
             <select
               value={itemNo}
               onChange={(e) => {
                 setItemNo(e.target.value)
-                if (e.target.value) setLabel(e.target.value.replace('.0', ''))
+                void savePin({ itemNo: e.target.value || undefined })
               }}
             >
               <option value="">General location</option>
@@ -1133,18 +1207,66 @@ function PinSheet({
             </select>
           </Field>
         </div>
+
         <Field label="Note">
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. IO at grid 12, IL 21.30" />
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onBlur={() => void savePin({ note })}
+            placeholder="e.g. IO at grid 12, IL 21.30"
+          />
         </Field>
-        <div className="row row--end">
-          <button className="btn btn--ghost" onClick={onClose} type="button">
-            Cancel
-          </button>
-          <button className="btn" onClick={() => void onSave(label || '•', itemNo || undefined, note)} type="button">
-            <IconPin />
-            Place pin
-          </button>
+
+        <div>
+          <span className="field-label">Photos taken here ({photos.length})</span>
+          <p className="small muted" style={{ margin: '0 0 8px' }}>
+            Photos captured from this pin are tied to it, so the exported plan shows which locations carry evidence.
+          </p>
+          <PhotoCaptureButtons
+            itp={itp}
+            settings={settings}
+            itemNo={pin.itemNo}
+            pinId={pin.id}
+            defaultCategory="installation"
+            onCaptured={() => onToast(`Photo added at pin ${pin.label}`)}
+            onError={onToast}
+            label="Take photo here"
+          />
+          {photos.length ? (
+            <div style={{ marginTop: 10 }}>
+              <PhotoGrid photos={photos} onOpen={onOpenPhoto} />
+            </div>
+          ) : null}
         </div>
+
+        <div className="hr" />
+
+        <div className="row">
+          <span className="spacer" />
+          <ConfirmButton
+            label={
+              <>
+                <IconTrash />
+                Remove pin
+              </>
+            }
+            confirmLabel="Tap again to remove"
+            onConfirm={async () => {
+              await deletePin(itp.id, pin.id)
+              onToast(
+                photos.length
+                  ? `Pin removed — ${photos.length} photo${photos.length > 1 ? 's' : ''} kept in the record`
+                  : 'Pin removed',
+              )
+              onRemoved()
+            }}
+          />
+        </div>
+        {photos.length ? (
+          <p className="small muted" style={{ margin: 0 }}>
+            Removing the pin keeps its photos on the ITP; they simply stop being located on the plan.
+          </p>
+        ) : null}
       </div>
     </Sheet>
   )

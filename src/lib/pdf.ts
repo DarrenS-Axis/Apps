@@ -276,6 +276,7 @@ export async function exportItpPdf({ itp, project, drawings, photos }: ExportInp
 
   const plans = drawings.filter((d) => d.imageData)
   const orderedPhotos = [...photos].sort((a, b) => a.takenAt - b.takenAt)
+  const pinLabels = new Map(itp.pins.map((p) => [p.id, p.label]))
 
   if (plans.length || orderedPhotos.length) {
     doc.addPage()
@@ -299,10 +300,10 @@ export async function exportItpPdf({ itp, project, drawings, photos }: ExportInp
     y += 6
 
     for (const plan of plans) {
-      y = await drawPlanExtract(doc, plan, itp, y)
+      y = await drawPlanExtract(doc, plan, itp, orderedPhotos, y)
     }
 
-    y = drawPhotoGrid(doc, orderedPhotos, y)
+    y = drawPhotoGrid(doc, orderedPhotos, pinLabels, y)
     void y
   }
 
@@ -372,7 +373,13 @@ function drawSignOff(doc: jsPDF, itp: Itp, top: number): void {
 }
 
 /** Draws a plan with the ITP's location pins burned onto it. */
-async function drawPlanExtract(doc: jsPDF, plan: Drawing, itp: Itp, top: number): Promise<number> {
+async function drawPlanExtract(
+  doc: jsPDF,
+  plan: Drawing,
+  itp: Itp,
+  photos: Photo[],
+  top: number,
+): Promise<number> {
   const pins = itp.pins.filter((p) => p.drawingId === plan.id)
   const regions = (itp.regions ?? []).filter((r) => r.drawingId === plan.id)
   if (!plan.imageData) return top
@@ -428,7 +435,12 @@ async function drawPlanExtract(doc: jsPDF, plan: Drawing, itp: Itp, top: number)
           r.kind === 'area' ? 'area' : 'run'
         } — ${r.itemNo ? `Item ${r.itemNo}: ` : ''}${r.note || 'Extent covered by this ITP'}`,
     ),
-    ...pins.map((pin) => `  ${pin.label}. ${pin.itemNo ? `Item ${pin.itemNo} — ` : ''}${pin.note || 'Location marked'}`),
+    ...pins.map((pin) => {
+      const count = photos.filter((ph) => ph.pinId === pin.id).length
+      return `  ${pin.label}. ${pin.itemNo ? `Item ${pin.itemNo} — ` : ''}${pin.note || 'Location marked'}${
+        count ? ` (${count} photo${count > 1 ? 's' : ''})` : ''
+      }`
+    }),
   ]
 
   if (legend.length) {
@@ -558,7 +570,7 @@ function drawRegionLabel(
 }
 
 /** Photo contact sheet: three across, each captioned with its timestamp. */
-function drawPhotoGrid(doc: jsPDF, photos: Photo[], top: number): number {
+function drawPhotoGrid(doc: jsPDF, photos: Photo[], pinLabels: Map<string, string>, top: number): number {
   if (photos.length === 0) return top
 
   const cols = 3
@@ -603,8 +615,11 @@ function drawPhotoGrid(doc: jsPDF, photos: Photo[], top: number): number {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(5.6)
     doc.setTextColor(INK[0], INK[1], INK[2])
+    const pinLabel = photo.pinId ? pinLabels.get(photo.pinId) : undefined
     doc.text(
-      `${photo.itemNo ? `Item ${photo.itemNo} · ` : ''}${PHOTO_CATEGORIES[photo.category]}`,
+      `${photo.itemNo ? `Item ${photo.itemNo} · ` : ''}${pinLabel ? `Pin ${pinLabel} · ` : ''}${
+        PHOTO_CATEGORIES[photo.category]
+      }`,
       x + 0.5,
       y + imgH + 2.4,
       { maxWidth: cellW - 1 },

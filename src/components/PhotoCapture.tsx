@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Itp, Photo, PhotoCategory, Settings } from '../data/types'
 import { PHOTO_CATEGORIES } from '../data/types'
 import { capturePhoto, formatCoords, stampText } from '../lib/images'
 import { addPhoto, deletePhoto, updatePhoto } from '../data/db'
-import { ConfirmButton, IconCamera, IconClose, IconPin, IconTrash, Sheet } from './ui'
+import { ConfirmButton, IconCamera, IconClose, IconTrash, Sheet } from './ui'
 
 /* ------------------------------------------------------------ capture bar */
 
@@ -11,6 +11,8 @@ interface CaptureProps {
   itp: Itp
   settings: Settings
   itemNo?: string
+  /** Plan pin these photos are being taken at. */
+  pinId?: string
   defaultCategory?: PhotoCategory
   onCaptured: (photo: Photo) => void
   onError: (message: string) => void
@@ -26,6 +28,7 @@ export function PhotoCaptureButtons({
   itp,
   settings,
   itemNo,
+  pinId,
   defaultCategory = 'installation',
   onCaptured,
   onError,
@@ -40,14 +43,16 @@ export function PhotoCaptureButtons({
     setBusy(true)
     try {
       for (const file of Array.from(files)) {
+        const pin = pinId ? itp.pins.find((p) => p.id === pinId) : undefined
         const photo = await capturePhoto(file, {
           itpId: itp.id,
           itemNo,
+          pinId,
           category: defaultCategory,
           settings,
           contextLines: [
             `ITP ${itp.itpNumber} — ${itp.title}`,
-            [itp.area, itemNo ? `Item ${itemNo}` : ''].filter(Boolean).join(' · '),
+            [itp.area, itemNo ? `Item ${itemNo}` : '', pin ? `Pin ${pin.label}` : ''].filter(Boolean).join(' · '),
           ],
         })
         await addPhoto(photo)
@@ -106,7 +111,10 @@ export function PhotoGrid({
       {photos.map((p) => (
         <button key={p.id} className="photo" onClick={() => onOpen(p)} type="button">
           <img src={p.thumb} alt={p.caption || PHOTO_CATEGORIES[p.category]} loading="lazy" />
-          <span className="photo__tag">{p.itemNo ? `#${p.itemNo}` : PHOTO_CATEGORIES[p.category]}</span>
+          <span className="photo__tag">
+            {p.pinId ? '📍 ' : ''}
+            {p.itemNo ? `#${p.itemNo}` : PHOTO_CATEGORIES[p.category]}
+          </span>
           <span className="photo__stamp">{stampText(p.takenAt)}</span>
         </button>
       ))}
@@ -122,22 +130,45 @@ export function PhotoViewer({
   onClose,
   onChanged,
   onDeleted,
-  onLocate,
 }: {
   photo: Photo
   itp: Itp
   onClose: () => void
   onChanged: () => void
   onDeleted: () => void
-  onLocate?: (photo: Photo) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [caption, setCaption] = useState(photo.caption)
   const [category, setCategory] = useState<PhotoCategory>(photo.category)
   const [itemNo, setItemNo] = useState(photo.itemNo ?? '')
+  const [pinId, setPinId] = useState(photo.pinId ?? '')
+
+  const pinLabel = itp.pins.find((p) => p.id === photo.pinId)?.label
+
+  // The lightbox covers the screen, so the page behind it must not scroll —
+  // otherwise closing it drops you somewhere you did not leave. Escape closes
+  // it, matching the sheets.
+  useEffect(() => {
+    if (editing) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previous
+    }
+  }, [editing, onClose])
 
   const save = async () => {
-    await updatePhoto(photo.id, { caption, category, itemNo: itemNo || undefined })
+    await updatePhoto(photo.id, {
+      caption,
+      category,
+      itemNo: itemNo || undefined,
+      pinId: pinId || undefined,
+    })
     setEditing(false)
     onChanged()
   }
@@ -173,6 +204,23 @@ export function PhotoViewer({
               </select>
             </label>
           </div>
+          <label className="field">
+            <span>Taken at plan pin</span>
+            <select value={pinId} onChange={(e) => setPinId(e.target.value)}>
+              <option value="">Not located on a plan</option>
+              {itp.pins.map((p) => (
+                <option key={p.id} value={p.id}>
+                  Pin {p.label}
+                  {p.note ? ` — ${p.note.slice(0, 44)}` : ''}
+                </option>
+              ))}
+            </select>
+            {itp.pins.length === 0 ? (
+              <span style={{ textTransform: 'none', fontWeight: 400, marginTop: 4, color: 'var(--ink-3)' }}>
+                Drop a pin on the Plans tab first to locate photos on the drawing.
+              </span>
+            ) : null}
+          </label>
           <div className="row row--end">
             <button className="btn btn--ghost" onClick={() => setEditing(false)} type="button">
               Cancel
@@ -195,6 +243,7 @@ export function PhotoViewer({
             {stampText(photo.takenAt)}
             {photo.takenAtFromExif ? ' · from camera' : ' · recorded at capture'}
             {photo.itemNo ? ` · item ${photo.itemNo}` : ''}
+            {pinLabel ? ` · pin ${pinLabel}` : ''}
             {formatCoords(photo.lat, photo.lng) ? ` · ${formatCoords(photo.lat, photo.lng)}` : ''}
           </div>
         </div>
@@ -207,12 +256,6 @@ export function PhotoViewer({
         <button className="btn btn--ghost btn--sm" onClick={() => setEditing(true)} type="button">
           Edit details
         </button>
-        {onLocate ? (
-          <button className="btn btn--ghost btn--sm" onClick={() => onLocate(photo)} type="button">
-            <IconPin />
-            Locate on plan
-          </button>
-        ) : null}
         <span className="spacer" />
         <ConfirmButton
           label={

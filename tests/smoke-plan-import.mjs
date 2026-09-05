@@ -105,9 +105,10 @@ await page.locator('.planview').evaluate((el) => el.scrollIntoView({ block: 'cen
 await page.waitForTimeout(300)
 const pbox = await page.locator('.planview').boundingBox()
 await page.mouse.click(pbox.x + pbox.width * 0.5, pbox.y + pbox.height * 0.5)
-await page.waitForTimeout(500)
-await page.getByRole('button', { name: 'Place pin' }).click()
+// The pin is created on tap and its detail sheet opens; close it to see the plan.
 await page.waitForTimeout(800)
+await page.locator('.sheet__head .iconbtn').click()
+await page.waitForTimeout(700)
 await shot('06-pinned')
 
 const pins = await page.locator('.pin').count()

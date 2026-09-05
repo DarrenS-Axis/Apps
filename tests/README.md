@@ -15,6 +15,9 @@ console or page error along the way.
 - `smoke-regions.mjs` — highlighting the section an ITP covers: trace a run, box an area,
   confirm panning does not draw, and check both reach the exported PDF and survive a
   reload.
+- `smoke-pin-photos.mjs` — photos taken at a plan pin: capture from the pin, the count shown
+  on the plan and in the pin list, an existing photo reassigned to a pin, the pin credited
+  in the exported PDF, and the evidence surviving the pin's removal.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 

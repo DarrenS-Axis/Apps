@@ -49,6 +49,14 @@ IO at grid 3 to boundary trap" — in five colours, so several ITPs or items on 
 drawing stay apart. Everything is drawn onto the plan extract in the exported PDF with a
 numbered legend, so the inspector sees exactly what was signed off.
 
+**Photos at a pin.** Tapping the plan drops a pin and opens it, ready for the camera —
+photos taken there are tied to that location and stamped with the pin reference, so a print
+of the photo still says where it was taken. Pins carrying evidence show a count on the
+plan, and an existing photo can be moved onto a pin afterwards from its details. The
+exported plan legend credits each pin with its photo count, and the contact sheet names the
+pin under every shot. Removing a pin keeps its photos on the ITP; they simply stop being
+located on the drawing.
+
 **Sign-off.** An installer sign-off block with drawn signature, licence / CP number and
 completion date, and a separate client / superintendent acceptance block that closes the
 ITP out.
@@ -112,7 +120,7 @@ For a one-off with no repository setup, `npm run build` then drag `dist/` onto
    measured value where one is asked for, take photos, and sign. Hold and witness points
    prompt for a release or a notice.
 6. **Plans tab** — highlight the run or area this ITP covers, and drop pins where specific
-   inspections took place.
+   inspections took place, photographing each one from the pin itself.
 7. **Sign-off** — sign when everything is signed and clear, then export the PDF.
 
 ---
@@ -167,6 +175,12 @@ fixed A4 layout regardless of what the phone was rendering. There is no CSS fram
 the design tokens and components in `styles/app.css` are sized for gloved hands in
 daylight.
 
+**Photos and pins.** A photo names its pin rather than repeating its coordinates, so moving
+or relabelling a pin never leaves a photo pointing at a stale location, and deleting a pin
+detaches the photo instead of destroying evidence. Dropping a pin creates it immediately
+and opens one sheet holding its label, note and camera — an earlier version showed a
+placement dialog and then a detail dialog with the same fields twice.
+
 **Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
 a highlight stays put whatever resolution the plan was rendered at and whatever the device
 zoom. They live on the ITP rather than the drawing, because the question being answered is
@@ -210,6 +224,9 @@ see `tests/README.md`):
   like PM64), then linked to an ITP and pinned.
 - **regions** — a run is traced and an area boxed on a plan, both are listed, panning does
   not leave stray marks, the markup reaches the exported PDF, and it all survives a reload.
+- **pin photos** — photos captured at a pin, the count shown on the plan, an existing photo
+  reassigned to a pin, the pin credited in the exported PDF, and the evidence kept when the
+  pin is removed.
 - **offline** — the service worker activates, the bundle is genuinely precached (not just
   reachable), the app survives a reload with the network fully cut, and all 42 templates
   stay available with no signal.

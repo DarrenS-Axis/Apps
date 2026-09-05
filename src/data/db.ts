@@ -135,9 +135,14 @@ export async function deleteDrawing(id: string): Promise<void> {
         updatedAt: now(),
       })
     }
-    const photos = await db.photos.filter((p) => p.drawingId === id).toArray()
-    for (const ph of photos) {
-      await db.photos.update(ph.id, { drawingId: undefined, pinX: undefined, pinY: undefined })
+    // Photos taken at a pin on this drawing keep their evidence but lose the
+    // location, since the pin is going with the drawing.
+    const removedPinIds = new Set(
+      affected.flatMap((itp) => itp.pins.filter((p) => p.drawingId === id).map((p) => p.id)),
+    )
+    if (removedPinIds.size) {
+      const photos = await db.photos.filter((p) => Boolean(p.pinId) && removedPinIds.has(p.pinId!)).toArray()
+      for (const ph of photos) await db.photos.update(ph.id, { pinId: undefined })
     }
     await db.drawings.delete(id)
   })
@@ -233,6 +238,21 @@ export async function duplicateItp(id: string, area: string): Promise<Itp> {
   }
   await db.itps.add(copy)
   return copy
+}
+
+/**
+ * Removes a pin from an ITP and detaches any photos taken at it. Photos are
+ * evidence in their own right, so they are kept — they simply stop claiming a
+ * location that no longer exists.
+ */
+export async function deletePin(itpId: string, pinId: string): Promise<void> {
+  await db.transaction('rw', db.itps, db.photos, async () => {
+    const itp = await db.itps.get(itpId)
+    if (!itp) return
+    await db.itps.update(itpId, { pins: itp.pins.filter((p) => p.id !== pinId), updatedAt: now() })
+    const photos = await db.photos.where('itpId').equals(itpId).filter((p) => p.pinId === pinId).toArray()
+    for (const ph of photos) await db.photos.update(ph.id, { pinId: undefined })
+  })
 }
 
 /* ---------------------------------------------------------------- photos */

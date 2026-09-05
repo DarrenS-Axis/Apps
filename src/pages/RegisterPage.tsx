@@ -12,7 +12,13 @@ type Tab = 'raised' | 'register'
 export function RegisterPage() {
   const { projectId } = useParams()
   const itps = useItps(projectId)
-  const [tab, setTab] = useState<Tab>(itps.length > 0 ? 'raised' : 'register')
+  // ITPs arrive from IndexedDB after the first render, so this cannot be a
+  // useState initialiser — it would always see an empty list and open the
+  // register on a job that already has ITPs raised. Follow the data until the
+  // user picks a tab themselves.
+  const [chosenTab, setChosenTab] = useState<Tab | null>(null)
+  const tab: Tab = chosenTab ?? (itps.length > 0 ? 'raised' : 'register')
+  const setTab = setChosenTab
   const [query, setQuery] = useState('')
   const [raising, setRaising] = useState<ItpTemplate | null>(null)
   const [toast, showToast] = useToast()
