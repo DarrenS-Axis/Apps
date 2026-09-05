@@ -118,6 +118,46 @@ export interface PlanPin {
   createdAt: number
 }
 
+/**
+ * A highlighted part of a drawing, marking the extent of work an ITP covers —
+ * the equivalent of running a highlighter along the pipe run on a paper plan,
+ * or boxing the area, before handing it to the inspector.
+ */
+export interface PlanRegion {
+  id: string
+  drawingId: string
+  /** `highlight` traces a run; `area` boxes a zone. */
+  kind: 'highlight' | 'area'
+  /**
+   * Normalised 0..1 points on the drawing image. A highlight is the traced
+   * path; an area is its two opposite corners.
+   */
+  points: { x: number; y: number }[]
+  colour: RegionColour
+  label: string
+  /** Schedule item this extent relates to, if any. */
+  itemNo?: string
+  note?: string
+  createdAt: number
+}
+
+export type RegionColour = 'yellow' | 'orange' | 'green' | 'blue' | 'pink'
+
+/**
+ * Highlighter colours, kept strong enough to read against a busy line drawing
+ * while still letting the linework show through.
+ */
+export const REGION_COLOURS: Record<RegionColour, { label: string; stroke: string; fill: string }> = {
+  yellow: { label: 'Yellow', stroke: '#eab308', fill: 'rgba(250, 204, 21, 0.38)' },
+  orange: { label: 'Orange', stroke: '#ea580c', fill: 'rgba(249, 115, 22, 0.34)' },
+  green: { label: 'Green', stroke: '#16a34a', fill: 'rgba(34, 197, 94, 0.34)' },
+  blue: { label: 'Blue', stroke: '#2563eb', fill: 'rgba(59, 130, 246, 0.32)' },
+  pink: { label: 'Pink', stroke: '#db2777', fill: 'rgba(236, 72, 153, 0.32)' },
+}
+
+/** Highlighter stroke width, as a fraction of the drawing's long edge. */
+export const REGION_STROKE_FRACTION = 0.014
+
 /* ----------------------------------------------------------------- photos */
 
 export type PhotoCategory =
@@ -282,6 +322,11 @@ export interface Itp {
   drawingIds: string[]
   /** Pins locating the work on those drawings. */
   pins: PlanPin[]
+  /**
+   * Highlighted extents showing the section of the drawing this ITP covers.
+   * Optional because ITPs raised before regions existed have none.
+   */
+  regions?: PlanRegion[]
   materials: ItpMaterial[]
   items: ItpItem[]
   status: ItpStatus

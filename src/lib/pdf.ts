@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { Drawing, Itp, Photo, Project } from '../data/types'
-import { PHOTO_CATEGORIES } from '../data/types'
+import type { Drawing, Itp, Photo, PlanRegion, Project } from '../data/types'
+import { PHOTO_CATEGORIES, REGION_COLOURS, REGION_STROKE_FRACTION } from '../data/types'
 import { formatDate, formatDateTime, itpProgress } from './format'
 import { formatCoords, stampText } from './images'
 
@@ -374,9 +374,10 @@ function drawSignOff(doc: jsPDF, itp: Itp, top: number): void {
 /** Draws a plan with the ITP's location pins burned onto it. */
 async function drawPlanExtract(doc: jsPDF, plan: Drawing, itp: Itp, top: number): Promise<number> {
   const pins = itp.pins.filter((p) => p.drawingId === plan.id)
+  const regions = (itp.regions ?? []).filter((r) => r.drawingId === plan.id)
   if (!plan.imageData) return top
 
-  const composited = await compositePins(plan, pins)
+  const composited = await compositeMarkup(plan, pins, regions)
   const maxW = PAGE.w - M * 2
   const maxH = 96
   const ratio = (plan.imageHeight ?? 700) / (plan.imageWidth ?? 1000)
@@ -395,9 +396,13 @@ async function drawPlanExtract(doc: jsPDF, plan: Drawing, itp: Itp, top: number)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
+  const marks = [
+    regions.length ? `${regions.length} highlighted extent${regions.length > 1 ? 's' : ''}` : '',
+    pins.length ? `${pins.length} location${pins.length > 1 ? 's' : ''} marked` : '',
+  ].filter(Boolean)
   doc.text(
     `Plan extract — ${[plan.number, plan.revision].filter(Boolean).join(' ')}${plan.title ? ` · ${plan.title}` : ''}${
-      pins.length ? ` · ${pins.length} location${pins.length > 1 ? 's' : ''} marked` : ''
+      marks.length ? ` · ${marks.join(', ')}` : ''
     }`,
     M,
     y + 3,
@@ -416,11 +421,20 @@ async function drawPlanExtract(doc: jsPDF, plan: Drawing, itp: Itp, top: number)
   }
   y += h + 3
 
-  if (pins.length) {
+  const legend: string[] = [
+    ...regions.map(
+      (r) =>
+        `  ${r.label || '–'}. ${REGION_COLOURS[r.colour]?.label ?? ''} ${
+          r.kind === 'area' ? 'area' : 'run'
+        } — ${r.itemNo ? `Item ${r.itemNo}: ` : ''}${r.note || 'Extent covered by this ITP'}`,
+    ),
+    ...pins.map((pin) => `  ${pin.label}. ${pin.itemNo ? `Item ${pin.itemNo} — ` : ''}${pin.note || 'Location marked'}`),
+  ]
+
+  if (legend.length) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(6.4)
-    for (const pin of pins) {
-      const line = `  ${pin.label}. ${pin.itemNo ? `Item ${pin.itemNo} — ` : ''}${pin.note || 'Location marked'}`
+    for (const line of legend) {
       if (y > PAGE.h - 16) {
         doc.addPage()
         y = 14
@@ -434,11 +448,15 @@ async function drawPlanExtract(doc: jsPDF, plan: Drawing, itp: Itp, top: number)
   return y + 3
 }
 
-/** Renders pins onto a copy of the plan so the PDF shows them in place. */
-function compositePins(plan: Drawing, pins: Itp['pins']): Promise<string> {
+/**
+ * Draws the ITP's markup onto a copy of the plan so the exported PDF shows the
+ * same thing the crew saw on the device: the highlighted extent of the work,
+ * with pins on top.
+ */
+function compositeMarkup(plan: Drawing, pins: Itp['pins'], regions: PlanRegion[]): Promise<string> {
   return new Promise((resolve) => {
     if (!plan.imageData) return resolve('')
-    if (pins.length === 0) return resolve(plan.imageData)
+    if (pins.length === 0 && regions.length === 0) return resolve(plan.imageData)
 
     const img = new Image()
     img.onload = () => {
@@ -448,6 +466,52 @@ function compositePins(plan: Drawing, pins: Itp['pins']): Promise<string> {
       const ctx = canvas.getContext('2d')
       if (!ctx) return resolve(plan.imageData!)
       ctx.drawImage(img, 0, 0)
+
+      const stroke = Math.max(canvas.width, canvas.height) * REGION_STROKE_FRACTION
+
+      // Highlights first, so pins stay readable on top of them.
+      for (const region of regions) {
+        const colour = REGION_COLOURS[region.colour] ?? REGION_COLOURS.yellow
+        ctx.save()
+        if (region.kind === 'area') {
+          const [a, b] = region.points
+          if (a && b) {
+            const x = Math.min(a.x, b.x) * canvas.width
+            const y = Math.min(a.y, b.y) * canvas.height
+            const w = Math.abs(b.x - a.x) * canvas.width
+            const h = Math.abs(b.y - a.y) * canvas.height
+            ctx.fillStyle = colour.fill
+            ctx.fillRect(x, y, w, h)
+            ctx.strokeStyle = colour.stroke
+            ctx.lineWidth = stroke * 0.3
+            ctx.strokeRect(x, y, w, h)
+            drawRegionLabel(ctx, region.label, x + stroke * 0.4, y + stroke * 1.4, stroke, colour.stroke)
+          }
+        } else if (region.points.length >= 2) {
+          ctx.beginPath()
+          region.points.forEach((pt, i) => {
+            const x = pt.x * canvas.width
+            const y = pt.y * canvas.height
+            if (i === 0) ctx.moveTo(x, y)
+            else ctx.lineTo(x, y)
+          })
+          ctx.strokeStyle = colour.fill
+          ctx.lineWidth = stroke
+          ctx.lineCap = 'round'
+          ctx.lineJoin = 'round'
+          ctx.stroke()
+          const first = region.points[0]
+          drawRegionLabel(
+            ctx,
+            region.label,
+            first.x * canvas.width,
+            first.y * canvas.height - stroke * 0.7,
+            stroke,
+            colour.stroke,
+          )
+        }
+        ctx.restore()
+      }
 
       const r = Math.max(14, canvas.width * 0.014)
       for (const pin of pins) {
@@ -471,6 +535,26 @@ function compositePins(plan: Drawing, pins: Itp['pins']): Promise<string> {
     img.onerror = () => resolve(plan.imageData!)
     img.src = plan.imageData
   })
+}
+
+/** Region reference, outlined in white so it reads over busy linework. */
+function drawRegionLabel(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  x: number,
+  y: number,
+  stroke: number,
+  colour: string,
+): void {
+  if (!label) return
+  ctx.font = `700 ${Math.round(stroke * 1.3)}px system-ui, sans-serif`
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.lineWidth = stroke * 0.28
+  ctx.strokeStyle = '#ffffff'
+  ctx.strokeText(label, x, y)
+  ctx.fillStyle = colour
+  ctx.fillText(label, x, y)
 }
 
 /** Photo contact sheet: three across, each captioned with its timestamp. */

@@ -99,6 +99,10 @@ if (planVisible === 0) errors.push('Imported PDF plan did not render in the ITP 
 
 await page.getByRole('button', { name: 'Drop pin' }).click()
 await page.waitForTimeout(300)
+// Centre the viewer first: page.mouse works in viewport coordinates, so a plan
+// below the fold would receive nothing.
+await page.locator('.planview').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+await page.waitForTimeout(300)
 const pbox = await page.locator('.planview').boundingBox()
 await page.mouse.click(pbox.x + pbox.width * 0.5, pbox.y + pbox.height * 0.5)
 await page.waitForTimeout(500)

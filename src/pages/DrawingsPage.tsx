@@ -419,7 +419,7 @@ function DrawingDetail({
         </div>
         {usedBy ? (
           <div className="banner banner--warn">
-            Deleting this drawing also removes the location pins recorded against it on {usedBy} ITP
+            Deleting this drawing also removes the highlighted extents and location pins recorded against it on {usedBy} ITP
             {usedBy > 1 ? 's' : ''}.
           </div>
         ) : null}

@@ -12,6 +12,9 @@ console or page error along the way.
 - `smoke-plan-import.mjs` — the way plans actually arrive: a multi-sheet PDF picked
   through the OS file browser (the same route SharePoint and OneDrive come in by),
   rendered on-device, the right sheet chosen, then linked to an ITP and pinned.
+- `smoke-regions.mjs` — highlighting the section an ITP covers: trace a run, box an area,
+  confirm panning does not draw, and check both reach the exported PDF and survive a
+  reload.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 

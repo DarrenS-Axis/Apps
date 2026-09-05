@@ -41,10 +41,13 @@ paste one. Multi-page PDFs render every sheet and ask which one you want; the dr
 number and revision are read off the title block where they can be determined. Rendering
 happens on the device — a drawing is never uploaded anywhere.
 
-**Locations on the plan.** Link a drawing to an ITP, then tap the plan to drop a numbered
-pin — optionally tied to a specific schedule item — with a note like "IO at grid 3,
-IL 21.30". The exported PDF includes the plan with those pins drawn on it, plus the pin
-schedule.
+**Highlight the section an ITP covers.** Link a drawing to an ITP, then mark it up the way
+you would a paper plan with a highlighter. **Highlight run** traces along the pipe run;
+**Box area** draws a rectangle around a zone; **Drop pin** marks a single location. Each
+mark takes a reference, an optional link to a schedule item, and a note like "110 HDPE run,
+IO at grid 3 to boundary trap" — in five colours, so several ITPs or items on the same
+drawing stay apart. Everything is drawn onto the plan extract in the exported PDF with a
+numbered legend, so the inspector sees exactly what was signed off.
 
 **Sign-off.** An installer sign-off block with drawn signature, licence / CP number and
 completion date, and a separate client / superintendent acceptance block that closes the
@@ -108,7 +111,8 @@ For a one-off with no repository setup, `npm run build` then drag `dist/` onto
 5. **Work through the schedule** — tap an item to open it, record the result, capture the
    measured value where one is asked for, take photos, and sign. Hold and witness points
    prompt for a release or a notice.
-6. **Plans tab** — drop pins where the work was inspected.
+6. **Plans tab** — highlight the run or area this ITP covers, and drop pins where specific
+   inspections took place.
 7. **Sign-off** — sign when everything is signed and clear, then export the PDF.
 
 ---
@@ -149,7 +153,7 @@ src/
     format.ts             dates, progress, hold-point blocking, status derivation
     pdf.ts                ITP and register PDF export
   components/
-    PlanViewer.tsx        pan / pinch-zoom plan with pin placement
+    PlanViewer.tsx        pan / pinch-zoom plan, pin placement and region markup
     PhotoCapture.tsx      camera and gallery capture, grid, lightbox
     ui.tsx                icons, sheets, fields, signature pad, toasts
   pages/                  one file per screen
@@ -162,6 +166,12 @@ primitives rather than by screenshotting the DOM, so the output is selectable te
 fixed A4 layout regardless of what the phone was rendering. There is no CSS framework —
 the design tokens and components in `styles/app.css` are sized for gloved hands in
 daylight.
+
+**Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
+a highlight stays put whatever resolution the plan was rendered at and whatever the device
+zoom. They live on the ITP rather than the drawing, because the question being answered is
+"which part does *this* ITP cover" — so the same drawing carries different markup for each
+ITP raised against it, and duplicating an ITP to a new area starts with a clean plan.
 
 **Plan import.** pdf.js renders drawing PDFs, loaded on demand — it is a megabyte, and
 most site sessions never add a drawing. It uses pdf.js's *legacy* build on purpose: the
@@ -198,6 +208,8 @@ see `tests/README.md`):
 - **plan import** — a multi-sheet PDF is imported, every sheet rendered, the right one
   picked, the drawing number read off the file name (and *not* mistaken for a pipe spec
   like PM64), then linked to an ITP and pinned.
+- **regions** — a run is traced and an area boxed on a plan, both are listed, panning does
+  not leave stray marks, the markup reaches the exported PDF, and it all survives a reload.
 - **offline** — the service worker activates, the bundle is genuinely precached (not just
   reachable), the app survives a reload with the network fully cut, and all 42 templates
   stay available with no signal.

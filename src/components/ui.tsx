@@ -112,6 +112,27 @@ export const IconSign = svg(
     <path d="M4 21h16" />
   </>,
 )
+export const IconHand = svg(
+  <>
+    <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11" />
+    <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11" />
+    <path d="M15 11.5V6.5a1.5 1.5 0 0 1 3 0V14" />
+    <path d="M9 11V9a1.5 1.5 0 0 0-3 0v5.5c0 3.6 2.6 6.5 6 6.5h1.5c3 0 5.5-2.5 5.5-5.5V14" />
+  </>,
+)
+export const IconHighlight = svg(
+  <>
+    <path d="M14 4.5 19.5 10 11 18.5H5.5V13z" />
+    <path d="m12.5 6 5.5 5.5" />
+    <path d="M4 21h16" />
+  </>,
+)
+export const IconArea = svg(
+  <>
+    <rect x="4" y="6" width="16" height="12" rx="1.5" strokeDasharray="3.5 2.5" />
+    <path d="M8.5 12h7" />
+  </>,
+)
 export const IconFolder = svg(<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />)
 
 /* ------------------------------------------------------------------ chips */

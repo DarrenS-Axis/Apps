@@ -119,11 +119,19 @@ export async function updateDrawing(id: string, patch: Partial<Drawing>): Promis
  */
 export async function deleteDrawing(id: string): Promise<void> {
   await db.transaction('rw', db.drawings, db.itps, db.photos, async () => {
-    const affected = await db.itps.filter((i) => i.drawingIds.includes(id) || i.pins.some((p) => p.drawingId === id)).toArray()
+    const affected = await db.itps
+      .filter(
+        (i) =>
+          i.drawingIds.includes(id) ||
+          i.pins.some((p) => p.drawingId === id) ||
+          (i.regions ?? []).some((r) => r.drawingId === id),
+      )
+      .toArray()
     for (const itp of affected) {
       await db.itps.update(itp.id, {
         drawingIds: itp.drawingIds.filter((d) => d !== id),
         pins: itp.pins.filter((p) => p.drawingId !== id),
+        regions: (itp.regions ?? []).filter((r) => r.drawingId !== id),
         updatedAt: now(),
       })
     }
@@ -170,6 +178,7 @@ export async function createItp(input: NewItpInput): Promise<Itp> {
     documentNo: input.documentNo ?? '',
     drawingIds: input.drawingIds ?? [],
     pins: [],
+    regions: [],
     materials,
     items,
     status: 'draft',
@@ -200,7 +209,10 @@ export async function duplicateItp(id: string, area: string): Promise<Itp> {
     id: uid('itp'),
     area,
     status: 'draft',
+    // Pins and highlights locate work in a specific area, so a copy raised for
+    // a different area starts with none.
     pins: [],
+    regions: [],
     signOff: undefined,
     clientSignOff: undefined,
     dateCompleted: undefined,

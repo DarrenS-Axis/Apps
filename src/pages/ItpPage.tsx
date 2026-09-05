@@ -2,15 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteItp, duplicateItp, updateItp, uid } from '../data/db'
 import { useDrawings, useItp, usePhotos, usePhotosByItem, useProject, useSettings } from '../data/store'
-import type { Itp, ItpItem, PlanPin, Photo, PointType } from '../data/types'
-import { POINT_TYPES, ITP_STATUS_LABEL } from '../data/types'
+import type { Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour } from '../data/types'
+import { POINT_TYPES, ITP_STATUS_LABEL, REGION_COLOURS } from '../data/types'
 import {
   ConfirmButton,
   Empty,
   Field,
   IconBack,
   IconCheck,
+  IconArea,
   IconCopy,
+  IconHand,
+  IconHighlight,
   IconPdf,
   IconPin,
   IconSign,
@@ -23,7 +26,7 @@ import {
   useToast,
 } from '../components/ui'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
-import { PlanViewer } from '../components/PlanViewer'
+import { PlanViewer, type PlanMode } from '../components/PlanViewer'
 import { blockingHoldFor, deriveStatus, formatDate, formatDateTime, itpProgress, slug, statusChipClass, todayIso } from '../lib/format'
 import { exportItpPdf } from '../lib/pdf'
 
@@ -154,7 +157,7 @@ export function ItpPage() {
           [
             ['schedule', `Schedule (${itp.items.length})`],
             ['materials', `Materials (${itp.materials.length})`],
-            ['plans', `Plans (${itp.pins.length})`],
+            ['plans', `Plans (${itp.pins.length + (itp.regions?.length ?? 0)})`],
             ['signoff', 'Sign-off'],
           ] as [Tab, string][]
         ).map(([key, label]) => (
@@ -709,14 +712,23 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
   const drawings = useDrawings(projectId)
   const linked = drawings.filter((d) => itp.drawingIds.includes(d.id))
   const [activeId, setActiveId] = useState<string | undefined>(linked[0]?.id)
-  const [placing, setPlacing] = useState(false)
+  const [mode, setMode] = useState<PlanMode>('view')
+  const [colour, setColour] = useState<RegionColour>('yellow')
   const [pendingPin, setPendingPin] = useState<{ x: number; y: number } | null>(null)
-  const [selected, setSelected] = useState<PlanPin | null>(null)
+  const [pendingRegion, setPendingRegion] = useState<{
+    kind: 'highlight' | 'area'
+    points: { x: number; y: number }[]
+  } | null>(null)
+  const [selectedPin, setSelectedPin] = useState<PlanPin | null>(null)
+  const [selectedRegion, setSelectedRegion] = useState<PlanRegion | null>(null)
 
   const active = linked.find((d) => d.id === activeId) ?? linked[0]
   const pins = itp.pins.filter((p) => p.drawingId === active?.id)
+  const allRegions = itp.regions ?? []
+  const regions = allRegions.filter((r) => r.drawingId === active?.id)
 
   const savePins = (next: PlanPin[]) => updateItp(itp.id, { pins: next })
+  const saveRegions = (next: PlanRegion[]) => updateItp(itp.id, { regions: next })
 
   if (drawings.length === 0) {
     return (
@@ -725,7 +737,7 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
           <Empty
             icon={<IconPin />}
             title="No drawings on this job"
-            hint="Add drawings on the Plans tab, then link them here to mark exactly where the work was inspected."
+            hint="Add drawings on the Plans tab, then link them here to highlight the section this ITP covers."
           />
           <div className="row row--end">
             <Link className="btn btn--sm" to={`/project/${projectId}/drawings`}>
@@ -735,6 +747,13 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
         </div>
       </div>
     )
+  }
+
+  const modeHint: Record<PlanMode, string> = {
+    view: 'Drag to pan, pinch or scroll to zoom.',
+    pin: 'Tap the plan where the work was inspected.',
+    highlight: 'Drag along the run to highlight it, as you would with a highlighter on a paper plan.',
+    area: 'Drag a box around the area this ITP covers.',
   }
 
   return (
@@ -780,71 +799,185 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
                 ))}
               </select>
             ) : null}
-            <button
-              className={`btn btn--sm ${placing ? '' : 'btn--ghost'}`}
-              onClick={() => setPlacing(!placing)}
-              type="button"
-            >
-              <IconPin />
-              {placing ? 'Tap the plan…' : 'Drop pin'}
-            </button>
           </div>
+
+          <div className="card__body" style={{ paddingBottom: 10 }}>
+            <div className="row">
+              {(
+                [
+                  ['view', 'Pan / zoom', <IconHand key="i" />],
+                  ['highlight', 'Highlight run', <IconHighlight key="i" />],
+                  ['area', 'Box area', <IconArea key="i" />],
+                  ['pin', 'Drop pin', <IconPin key="i" />],
+                ] as [PlanMode, string, React.ReactNode][]
+              ).map(([m, label, icon]) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={`btn btn--sm ${mode === m ? '' : 'btn--ghost'}`}
+                  onClick={() => setMode(m)}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {mode === 'highlight' || mode === 'area' ? (
+              <div className="row" style={{ marginTop: 10, gap: 6 }}>
+                <span className="small muted">Colour</span>
+                {(Object.keys(REGION_COLOURS) as RegionColour[]).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={REGION_COLOURS[c].label}
+                    onClick={() => setColour(c)}
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 999,
+                      cursor: 'pointer',
+                      background: REGION_COLOURS[c].fill,
+                      border: `2px solid ${colour === c ? REGION_COLOURS[c].stroke : 'var(--line-strong)'}`,
+                      outline: colour === c ? `2px solid ${REGION_COLOURS[c].stroke}` : 'none',
+                      outlineOffset: 2,
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <p className="small muted" style={{ margin: '10px 0 0' }}>
+              {modeHint[mode]}
+            </p>
+          </div>
+
           <div className="card__body card__body--flush">
             <PlanViewer
               drawing={active}
               pins={pins}
-              placing={placing}
-              selectedPinId={selected?.id}
-              onDropPin={placing ? (x, y) => setPendingPin({ x, y }) : undefined}
-              onSelectPin={setSelected}
+              regions={regions}
+              mode={mode}
+              drawColour={colour}
+              selectedPinId={selectedPin?.id}
+              selectedRegionId={selectedRegion?.id}
+              onDropPin={(x, y) => setPendingPin({ x, y })}
+              onDrawRegion={(kind, points) => setPendingRegion({ kind, points })}
+              onSelectPin={(p) => {
+                setSelectedPin(p)
+                setSelectedRegion(null)
+              }}
+              onSelectRegion={(r) => {
+                setSelectedRegion(r)
+                setSelectedPin(null)
+              }}
             />
           </div>
+
           <div className="card__body">
-            {pins.length === 0 ? (
+            {regions.length === 0 && pins.length === 0 ? (
               <p className="small muted" style={{ margin: 0 }}>
-                No locations marked yet. Use <strong>Drop pin</strong> and tap the plan where the work was inspected.
+                Nothing marked on this drawing yet. Use <strong>Highlight run</strong> to trace the extent this ITP covers, or
+                <strong> Drop pin</strong> for a single location.
               </p>
-            ) : (
-              <div className="tablewrap">
-                <table className="data">
-                  <thead>
-                    <tr>
-                      <th>Pin</th>
-                      <th>Item</th>
-                      <th>Note</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pins.map((p) => (
-                      <tr key={p.id}>
-                        <td className="mono">{p.label}</td>
-                        <td>{p.itemNo ? `Item ${p.itemNo}` : '—'}</td>
-                        <td>{p.note || '—'}</td>
-                        <td>
-                          <button
-                            className="btn btn--ghost btn--sm"
-                            type="button"
-                            onClick={() => {
-                              void savePins(itp.pins.filter((x) => x.id !== p.id))
-                              onToast('Pin removed')
-                            }}
-                          >
-                            Remove
-                          </button>
-                        </td>
+            ) : null}
+
+            {regions.length ? (
+              <>
+                <span className="field-label">Highlighted extents ({regions.length})</span>
+                <div className="tablewrap" style={{ marginBottom: 14 }}>
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th>Ref</th>
+                        <th>Type</th>
+                        <th>Item</th>
+                        <th>Note</th>
+                        <th />
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </thead>
+                    <tbody>
+                      {regions.map((r) => (
+                        <tr
+                          key={r.id}
+                          style={{ background: r.id === selectedRegion?.id ? 'var(--surface-2)' : undefined }}
+                        >
+                          <td>
+                            <span
+                              className="chip"
+                              style={{ background: REGION_COLOURS[r.colour].fill, color: REGION_COLOURS[r.colour].stroke }}
+                            >
+                              {r.label || '—'}
+                            </span>
+                          </td>
+                          <td>{r.kind === 'area' ? 'Area' : 'Run'}</td>
+                          <td>{r.itemNo ? `Item ${r.itemNo}` : '—'}</td>
+                          <td>{r.note || '—'}</td>
+                          <td>
+                            <button
+                              className="btn btn--ghost btn--sm"
+                              type="button"
+                              onClick={() => {
+                                void saveRegions(allRegions.filter((x) => x.id !== r.id))
+                                setSelectedRegion(null)
+                                onToast('Highlight removed')
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+
+            {pins.length ? (
+              <>
+                <span className="field-label">Pinned locations ({pins.length})</span>
+                <div className="tablewrap">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th>Pin</th>
+                        <th>Item</th>
+                        <th>Note</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pins.map((p) => (
+                        <tr key={p.id}>
+                          <td className="mono">{p.label}</td>
+                          <td>{p.itemNo ? `Item ${p.itemNo}` : '—'}</td>
+                          <td>{p.note || '—'}</td>
+                          <td>
+                            <button
+                              className="btn btn--ghost btn--sm"
+                              type="button"
+                              onClick={() => {
+                                void savePins(itp.pins.filter((x) => x.id !== p.id))
+                                onToast('Pin removed')
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       ) : (
         <div className="card">
           <div className="card__body">
-            <Empty title="No drawing linked" hint="Tick a drawing above to view it and mark inspection locations." />
+            <Empty title="No drawing linked" hint="Tick a drawing above to view it and mark the section this ITP covers." />
           </div>
         </div>
       )}
@@ -866,12 +999,100 @@ function PlansTab({ itp, projectId, onToast }: { itp: Itp; projectId: string; on
             }
             await savePins([...itp.pins, pin])
             setPendingPin(null)
-            setPlacing(false)
+            setMode('view')
             onToast('Location marked on plan')
           }}
         />
       ) : null}
+
+      {pendingRegion && active ? (
+        <RegionSheet
+          itp={itp}
+          kind={pendingRegion.kind}
+          defaultLabel={String(allRegions.length + 1)}
+          onClose={() => setPendingRegion(null)}
+          onSave={async (label, itemNo, note) => {
+            const region: PlanRegion = {
+              id: uid('rgn'),
+              drawingId: active.id,
+              kind: pendingRegion.kind,
+              points: pendingRegion.points,
+              colour,
+              label,
+              itemNo,
+              note,
+              createdAt: Date.now(),
+            }
+            await saveRegions([...allRegions, region])
+            setPendingRegion(null)
+            onToast(pendingRegion.kind === 'area' ? 'Area highlighted' : 'Run highlighted')
+          }}
+        />
+      ) : null}
     </>
+  )
+}
+
+function RegionSheet({
+  itp,
+  kind,
+  defaultLabel,
+  onClose,
+  onSave,
+}: {
+  itp: Itp
+  kind: 'highlight' | 'area'
+  defaultLabel: string
+  onClose: () => void
+  onSave: (label: string, itemNo: string | undefined, note: string) => Promise<void>
+}) {
+  const [label, setLabel] = useState(defaultLabel)
+  const [itemNo, setItemNo] = useState('')
+  const [note, setNote] = useState('')
+
+  return (
+    <Sheet title={kind === 'area' ? 'Highlighted area' : 'Highlighted run'} onClose={onClose}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>
+          This marks the section of the drawing the ITP covers. It is drawn onto the plan extract in the exported PDF, so the
+          inspector can see exactly what was signed off.
+        </p>
+        <div className="field-grid">
+          <Field label="Reference" hint="Shown on the plan and in the schedule. Keep it short.">
+            <input type="text" value={label} onChange={(e) => setLabel(e.target.value.slice(0, 6))} />
+          </Field>
+          <Field label="Relates to item">
+            <select value={itemNo} onChange={(e) => setItemNo(e.target.value)}>
+              <option value="">Whole ITP extent</option>
+              {itp.items.map((i) => (
+                <option key={i.no} value={i.no}>
+                  {i.no} — {i.installation.slice(0, 50)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="Note">
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={
+              kind === 'area'
+                ? 'e.g. Southern driveway, grid 10-12'
+                : 'e.g. 110 HDPE run from IO at grid 3 to boundary trap'
+            }
+          />
+        </Field>
+        <div className="row row--end">
+          <button className="btn btn--ghost" onClick={onClose} type="button">
+            Discard
+          </button>
+          <button className="btn" onClick={() => void onSave(label, itemNo || undefined, note)} type="button">
+            Save highlight
+          </button>
+        </div>
+      </div>
+    </Sheet>
   )
 }
 
