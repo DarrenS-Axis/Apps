@@ -1,6 +1,6 @@
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useActiveProjectId, useOnline, useProject, useProjects } from './data/store'
-import { IconCamera, IconCog, IconHome, IconList, IconPlan } from './components/ui'
+import { IconCamera, IconCog, IconFolder, IconHome, IconList, IconPlan } from './components/ui'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { ProjectPage } from './pages/ProjectPage'
@@ -50,9 +50,18 @@ function Shell() {
     ? [project.projectNumber, project.client].filter(Boolean).join(' · ') || 'Inspection & Test Plans'
     : 'Inspection & Test Plans'
 
+  // The job switcher only appears once there is more than one job, so without
+  // this there is no way back to the list of jobs at all.
+  const onProjects = location.pathname === '/projects'
+
   return (
     <div className="app">
       <header className="appbar">
+        {onProjects ? null : (
+          <Link className="iconbtn appbar__jobs" to="/projects" aria-label="All jobs" title="All jobs">
+            <IconFolder />
+          </Link>
+        )}
         <div className="appbar__title">
           <h1>{title}</h1>
           <p>

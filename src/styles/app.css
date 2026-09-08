@@ -140,6 +140,35 @@ a {
   text-overflow: ellipsis;
 }
 
+/* Back to the list of jobs. It sits on the dark bar, so it borrows the bar's
+   palette rather than the light surface an .iconbtn normally sits on. */
+.appbar .appbar__jobs {
+  flex: none;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  text-decoration: none;
+}
+
+.appbar .appbar__jobs:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* The job switcher inherits the bar's white text, and every control defaults to
+   a white surface — so it was white on white and read as an empty box. It now
+   takes the bar's own palette, with the option list forced back to dark on
+   light because that menu is drawn by the OS. */
+.appbar select {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.appbar select option {
+  color: var(--ink);
+  background: #fff;
+}
+
 .appbar .btn--ghost {
   color: #fff;
   border-color: rgba(255, 255, 255, 0.28);

@@ -221,6 +221,13 @@ Troubleshooting turns on a live readout of pointer count, pinch/pan state, scale
 offset, so a fault that only appears on one phone can be reported as numbers rather than
 described.
 
+**Getting back to the jobs list.** The tab bar is scoped to one job, so a folder
+link in the header opens the home page listing every job on the device. It matters more
+than it looks: the header's job switcher only appears once there is a second job, so with
+one job there was previously no way back to that list at all. That switcher was also
+white text on a white control — it inherits the bar's colour and the app's control
+surface — so it read as an empty box; it now takes the bar's own palette.
+
 **Branding.** A job carries the head contractor's logo and its own contractor
 logo, attached from a file in Job details and stored as PNG so a mark supplied on a
 transparent background stays transparent — JPEG has no alpha and would print a black

@@ -31,6 +31,25 @@ await page.getByRole('button', { name: 'Create job' }).click()
 await page.waitForTimeout(700)
 await shot('02-job')
 
+// --- Getting back to the list of jobs. With one job there is no switcher in
+//     the header, so this link is the only way back to it.
+const backToJobs = page.getByRole('link', { name: 'All jobs' })
+if (!(await backToJobs.count())) errors.push('No link back to the jobs list from inside a job')
+else {
+  await backToJobs.click()
+  await page.waitForTimeout(600)
+  if (!page.url().includes('/projects')) errors.push(`"All jobs" did not open the jobs list (${page.url()})`)
+  const jobsListed = await page.locator('.listitem').count()
+  console.log('jobs listed on the home page:', jobsListed)
+  if (jobsListed < 1) errors.push('The jobs list showed no jobs')
+  // It is the page you are already on, so it should not offer itself.
+  if (await page.getByRole('link', { name: 'All jobs' }).count()) {
+    errors.push('The "All jobs" link is still shown on the jobs list itself')
+  }
+  await page.locator('.listitem').first().click()
+  await page.waitForTimeout(600)
+}
+
 // Settings: identity
 await page.getByRole('link', { name: 'Settings' }).click()
 await page.waitForTimeout(400)
