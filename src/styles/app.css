@@ -839,6 +839,27 @@ textarea:focus {
   height: auto;
 }
 
+/* A logo can be any shape and is often white-on-transparent, so it is shown on
+   a light tile at a fixed height rather than stretched to the column. */
+.logoshow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: #fff;
+  padding: 6px 10px;
+  min-height: 44px;
+}
+
+.logoshow img {
+  display: block;
+  max-height: 32px;
+  max-width: 150px;
+  width: auto;
+  height: auto;
+}
+
 /* ------------------------------------------------------------- dialog */
 
 .sheet {

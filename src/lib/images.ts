@@ -143,13 +143,58 @@ export async function processImage(
   }
 }
 
+/**
+ * Prepares a company logo for storage and for the exported PDF.
+ *
+ * PNG rather than JPEG on purpose: a logo is usually supplied on a transparent
+ * background, and JPEG has no alpha — flattening one would put a black block
+ * behind the mark on every page it is printed on.
+ */
+export async function processLogo(file: Blob, maxEdge = 480): Promise<string> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await loadImage(url)
+    const sw = img.naturalWidth || img.width
+    const sh = img.naturalHeight || img.height
+    if (!sw || !sh) throw new Error('That image has no size the browser can read.')
+    const scale = Math.min(1, maxEdge / Math.max(sw, sh))
+    const w = Math.max(1, Math.round(sw * scale))
+    const h = Math.max(1, Math.round(sh * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas not available in this browser.')
+    ctx.drawImage(img, 0, 0, w, h)
+    return canvas.toDataURL('image/png')
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 /** Best-effort device position; never blocks capture if it is refused. */
 export function currentPosition(timeout = 8000): Promise<GeolocationPosition | null> {
   if (!navigator.geolocation) return Promise.resolve(null)
   return new Promise((resolve) => {
+    let settled = false
+    const finish = (position: GeolocationPosition | null) => {
+      if (settled) return
+      settled = true
+      resolve(position)
+    }
+    // The browser's own timeout does not start until the location permission
+    // prompt is answered, so an ignored prompt left the photo stuck on
+    // "Saving…" indefinitely. This timer always fires.
+    const guard = setTimeout(() => finish(null), timeout + 1000)
     navigator.geolocation.getCurrentPosition(
-      (p) => resolve(p),
-      () => resolve(null),
+      (p) => {
+        clearTimeout(guard)
+        finish(p)
+      },
+      () => {
+        clearTimeout(guard)
+        finish(null)
+      },
       { enableHighAccuracy: true, timeout, maximumAge: 30000 },
     )
   })

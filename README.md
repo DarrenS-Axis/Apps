@@ -221,6 +221,14 @@ Troubleshooting turns on a live readout of pointer count, pinch/pan state, scale
 offset, so a fault that only appears on one phone can be reported as numbers rather than
 described.
 
+**Branding.** A job carries the head contractor's logo and its own contractor
+logo, attached from a file in Job details and stored as PNG so a mark supplied on a
+transparent background stays transparent — JPEG has no alpha and would print a black
+block behind it. The head contractor's logo and business name head every exported page;
+the contractor's fills the cell the paper form leaves for it, falling back to their name
+when no logo is attached. `examples/` holds four ITPs exported this way as worked
+examples.
+
 **Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
 a highlight stays put whatever resolution the plan was rendered at and whatever the device
 zoom. They live on the ITP rather than the drawing, because the question being answered is

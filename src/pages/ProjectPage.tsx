@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteProject, exportBackup, updateProject } from '../data/db'
 import { useDrawings, useItps, useProject } from '../data/store'
@@ -18,6 +18,7 @@ import {
   useToast,
 } from '../components/ui'
 import { deriveStatus, downloadBlob, itpProgress, relativeTime, slug, statusChipClass } from '../lib/format'
+import { processLogo } from '../lib/images'
 import { exportRegisterPdf } from '../lib/pdf'
 import { ITP_STATUS_LABEL } from '../data/types'
 
@@ -228,6 +229,77 @@ function Stat({ value, label, tone }: { value: string; label: string; tone?: 'ho
   )
 }
 
+/**
+ * Attaches a company logo. It is printed on every exported ITP, so it is worth
+ * the file picker rather than asking anyone to paste a data URL.
+ */
+function LogoField({
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  label: string
+  hint: string
+  value?: string
+  onChange: (value: string | undefined) => void
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [error, setError] = useState('')
+
+  const pick = async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    try {
+      onChange(await processLogo(file))
+      setError('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that image.')
+    } finally {
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div>
+      <span className="field-label">{label}</span>
+      <p className="small muted" style={{ margin: '0 0 8px' }}>
+        {hint}
+      </p>
+      <input
+        ref={inputRef}
+        className="visually-hidden"
+        type="file"
+        accept="image/*"
+        onChange={(e) => void pick(e.target.files)}
+      />
+      <div className="row" style={{ alignItems: 'center' }}>
+        {value ? (
+          <span className="logoshow">
+            <img src={value} alt={`${label} preview`} />
+          </span>
+        ) : (
+          <span className="small muted">None attached</span>
+        )}
+        <span className="spacer" />
+        <button className="btn btn--ghost btn--sm" type="button" onClick={() => inputRef.current?.click()}>
+          {value ? 'Replace' : 'Attach'}
+        </button>
+        {value ? (
+          <button className="btn btn--ghost btn--sm" type="button" onClick={() => onChange(undefined)}>
+            Remove
+          </button>
+        ) : null}
+      </div>
+      {error ? (
+        <p className="small" style={{ color: 'var(--fail)', margin: '6px 0 0' }}>
+          {error}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
 function EditProject({ projectId, onClose, onSaved }: { projectId: string; onClose: () => void; onSaved: () => void }) {
   const project = useProject(projectId)
   const [form, setForm] = useState(project)
@@ -271,6 +343,20 @@ function EditProject({ projectId, onClose, onSaved }: { projectId: string; onClo
               onChange={(e) => setForm({ ...form, approvedByRole: e.target.value })}
             />
           </Field>
+        </div>
+        <div className="field-grid">
+          <LogoField
+            label="Head contractor logo"
+            hint="Printed top-left on every exported ITP, above the plan title block."
+            value={form.clientLogo}
+            onChange={(clientLogo) => setForm({ ...form, clientLogo })}
+          />
+          <LogoField
+            label="Your company logo"
+            hint="Printed in the contractor cell of the ITP header."
+            value={form.contractorLogo}
+            onChange={(contractorLogo) => setForm({ ...form, contractorLogo })}
+          />
         </div>
         <Field label="Site address">
           <input type="text" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />

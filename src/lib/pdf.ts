@@ -53,11 +53,96 @@ function markings(doc: jsPDF, project: Project): void {
 }
 
 /**
+ * Places a logo inside a box, keeping its aspect ratio and centring it on the
+ * axis it does not fill. Returns the width it actually occupied, so a caption
+ * can sit beside it.
+ *
+ * A logo that cannot be read is skipped rather than thrown: an ITP still has to
+ * export when someone has attached something odd as a company mark.
+ */
+function drawLogo(
+  doc: jsPDF,
+  data: string,
+  x: number,
+  y: number,
+  maxW: number,
+  maxH: number,
+  align: 'left' | 'centre' = 'centre',
+): number {
+  try {
+    const props = doc.getImageProperties(data)
+    if (!props.width || !props.height) return 0
+    const scale = Math.min(maxW / props.width, maxH / props.height)
+    const w = props.width * scale
+    const h = props.height * scale
+    const dx = align === 'left' ? x : x + (maxW - w) / 2
+    const format = (props.fileType || 'PNG').toUpperCase()
+    doc.addImage(data, format, dx, y + (maxH - h) / 2, w, h, undefined, 'FAST')
+    return w
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * The head contractor's band above the ITP itself: their logo and business
+ * name on the left, the job on the right. Returns its height, zero when the job
+ * carries neither.
+ */
+function drawClientBand(doc: jsPDF, project: Project, y: number): number {
+  if (!project.client && !project.clientLogo) return 0
+  const h = 12
+  let x = M
+
+  if (project.clientLogo) {
+    const used = drawLogo(doc, project.clientLogo, M, y, 42, h, 'left')
+    if (used) x = M + used + 4
+  }
+
+  if (project.client) {
+    // With a logo the name would otherwise be printed twice — most company
+    // marks are wordmarks — so it drops to the caption line beside it.
+    if (x > M) {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      doc.setTextColor(110, 120, 130)
+      doc.text(`${project.client}  ·  HEAD CONTRACTOR`, x, y + 7.4, { maxWidth: 96 })
+    } else {
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(11)
+      doc.setTextColor(INK[0], INK[1], INK[2])
+      doc.text(project.client, x, y + 6.6, { maxWidth: 96 })
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6)
+      doc.setTextColor(110, 120, 130)
+      doc.text('HEAD CONTRACTOR', x, y + 10.2)
+    }
+  }
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(90, 100, 110)
+  const job = [project.name, project.projectNumber].filter(Boolean).join('  ·  ')
+  doc.text(job, PAGE.w - M, y + 5.4, { align: 'right', maxWidth: 80 })
+  if (project.address) doc.text(project.address, PAGE.w - M, y + 9, { align: 'right', maxWidth: 80 })
+
+  doc.setDrawColor(LINE[0], LINE[1], LINE[2])
+  doc.setLineWidth(0.3)
+  doc.line(M, y + h - 1.5, PAGE.w - M, y + h - 1.5)
+  doc.setTextColor(INK[0], INK[1], INK[2])
+  return h
+}
+
+/**
  * Draws the boxed header that sits above the schedule on page 1 and returns the
  * y position the materials table should start at.
  */
 function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[]): number {
-  const top = 14
+  // The marking is stamped across the top of every page, so the band has to
+  // start below it rather than under it.
+  const bandTop = project.marking ? 10 : 3
+  const bandH = drawClientBand(doc, project, bandTop)
+  const top = bandH ? bandTop + bandH + 1 : 14
   const h = 26
   const logoW = 34
   const titleW = 62
@@ -66,14 +151,21 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
   doc.setLineWidth(0.3)
   doc.rect(M, top, PAGE.w - M * 2, h)
 
-  // Contractor block, left.
+  // Contractor block, left: their logo if they have attached one, their name if
+  // not — the cell is never left empty.
   doc.line(M + logoW, top, M + logoW, top + h)
+  const drewLogo = project.contractorLogo ? drawLogo(doc, project.contractorLogo, M + 2, top + 3, logoW - 4, h - 10) : 0
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9)
-  doc.text(project.contractor || 'Contractor', M + logoW / 2, top + h / 2 - 1, { align: 'center', maxWidth: logoW - 3 })
+  if (!drewLogo) {
+    doc.text(project.contractor || 'Contractor', M + logoW / 2, top + h / 2 - 1, { align: 'center', maxWidth: logoW - 3 })
+  } else if (project.contractor) {
+    doc.setFontSize(6.5)
+    doc.text(project.contractor, M + logoW / 2, top + h - 6, { align: 'center', maxWidth: logoW - 3 })
+  }
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(6.5)
-  doc.text(project.projectNumber || '', M + logoW / 2, top + h / 2 + 3.5, { align: 'center' })
+  doc.text(project.projectNumber || '', M + logoW / 2, top + h - 2.5, { align: 'center' })
 
   // Title and approval block.
   const cx = M + logoW
