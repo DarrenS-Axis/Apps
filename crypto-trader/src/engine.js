@@ -40,6 +40,7 @@ export class Engine {
     this.params = resolveParams(this.strategy, config.strategy.params);
     this.timeframeMs = TIMEFRAME_MS[config.timeframe];
     this.running = false;
+    this.paused = false;
     this.lastPrices = {};
     this.lastError = null;
     this.tickCount = 0;
@@ -254,6 +255,13 @@ export class Engine {
       return;
     }
 
+    if (this.paused) {
+      this.state.lastCandleTime[instrument] = latest.time;
+      this.store.save();
+      log.debug('paused; strategy not consulted', { instrument });
+      return;
+    }
+
     const signal = this.strategy.evaluate(
       { candles: closed, index: closed.length - 1, position },
       this.params,
@@ -330,7 +338,15 @@ export class Engine {
     while (this.running) {
       const startedAt = Date.now();
       try {
-        await this.tick();
+        // Pausing stops the strategy being consulted; it does NOT stop the loop.
+        // Stops and targets on an open position keep running, because a paused
+        // bot that stopped watching its stops would be strictly worse than one
+        // that was never started.
+        if (this.paused && Object.keys(this.state.positions).length === 0) {
+          log.debug('paused and flat, skipping tick');
+        } else {
+          await this.tick();
+        }
       } catch (err) {
         this.lastError = { message: err.message, at: Date.now() };
         log.error('tick failed', { error: err.message });
@@ -344,6 +360,19 @@ export class Engine {
 
   stop() {
     this.running = false;
+  }
+
+  /** Stop opening and closing on signals. Protective exits carry on. */
+  pause() {
+    if (this.paused) return;
+    this.paused = true;
+    log.warn('engine paused; protective exits still run on open positions');
+  }
+
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    log.info('engine resumed');
   }
 
   /** A snapshot for the dashboard and the `status` command. */
@@ -367,6 +396,7 @@ export class Engine {
       params: this.params,
       timeframe: this.config.timeframe,
       instruments: this.config.instruments,
+      paused: this.paused,
       halted: this.state.halted,
       haltReason: this.state.haltReason,
       killSwitch: killSwitchEngaged(),

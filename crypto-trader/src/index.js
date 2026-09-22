@@ -14,7 +14,7 @@
  */
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
-import { existsSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadConfig, loadEnv, PROJECT_ROOT, LIVE_CONFIRMATION } from './config.js';
 import { configureLogging, log } from './log.js';
@@ -24,11 +24,11 @@ import { PaperBroker } from './exec/paperBroker.js';
 import { LiveBroker } from './exec/liveBroker.js';
 import { StateStore } from './state/store.js';
 import { Engine } from './engine.js';
-import { startDashboard } from './dashboard.js';
+import { startDashboard, newSessionToken } from './dashboard.js';
 import { listStrategies } from './strategy/registry.js';
 import { fetchHistory } from './market/history.js';
 import { backtest } from './backtest.js';
-import { KILL_SWITCH_FILE, killSwitchEngaged } from './risk/guard.js';
+import { KILL_SWITCH_FILE, killSwitchEngaged, engageKillSwitch, clearKillSwitch } from './risk/guard.js';
 
 const OPTIONS = {
   mode: { type: 'string' },
@@ -177,7 +177,15 @@ async function run(config, values) {
     });
   }
 
-  const server = config.dashboard.enabled ? startDashboard(engine, { port: config.dashboard.port }) : null;
+  const server = config.dashboard.enabled
+    ? startDashboard(engine, {
+        port: config.dashboard.port,
+        // New every run, so a link left open in a browser tab from last time
+        // cannot drive this one.
+        token: newSessionToken(),
+        onFlatten: () => engine.flatten('dashboard'),
+      })
+    : null;
 
   let shuttingDown = false;
   const shutdown = async (signal) => {
@@ -362,10 +370,10 @@ async function verify(config) {
 
 function toggleKill(argument) {
   if (argument === 'on') {
-    writeFileSync(KILL_SWITCH_FILE, `engaged ${new Date().toISOString()}\n`);
+    engageKillSwitch('cli');
     process.stdout.write(`Kill switch engaged. No new positions will be opened.\n${KILL_SWITCH_FILE}\n`);
   } else if (argument === 'off') {
-    if (existsSync(KILL_SWITCH_FILE)) unlinkSync(KILL_SWITCH_FILE);
+    clearKillSwitch();
     process.stdout.write('Kill switch cleared.\n');
   } else {
     fail('usage: kill on|off');

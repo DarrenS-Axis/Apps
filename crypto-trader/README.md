@@ -59,7 +59,7 @@ should not also be pulling in a few hundred transitive packages.
 ```bash
 cd crypto-trader
 node --version          # expect v20.11 or later
-npm test                # 82 tests, no network needed
+npm test                # 99 tests, no network needed
 ```
 
 ### Create an API key
@@ -118,7 +118,8 @@ node src/index.js run                    # paper is the default
 ```
 
 Real prices, real signals, simulated fills with fees and slippage charged. Leave it
-running for a few weeks. Open <http://127.0.0.1:8787> for open positions and P&L.
+running for a few weeks. The terminal prints a control panel link — open that to
+watch it and to drive it.
 
 ### 3. Go live, if you still want to
 
@@ -156,12 +157,50 @@ entirely. The shipped config uses 50 USD per trade and a 25 USD daily loss limit
 Options: `--mode`, `--config`, `--strategy`, `--timeframe`, `--instrument` (repeatable),
 `--bars`, `--environment`, `--log-level`, `--json`, `--yes`.
 
+### The control panel
+
+On startup the bot prints a link:
+
+```
+  Control panel:  http://127.0.0.1:8787/?t=<token>
+```
+
+That page is how you operate it: live positions, today's P&L, and buttons to
+**pause**, **engage the kill switch**, and **flatten everything**. It is served by
+the bot, on your own machine.
+
+It has to be that way round. The API secret signs order-placing requests, so it
+stays in the bot process and is never sent to a browser. A page hosted anywhere
+else could not do this job:
+
+- anything in a web page is readable by whoever opens it, so a hosted page holding
+  your key would be publishing it;
+- exchanges deliberately do not permit browser origins to call private endpoints,
+  precisely to stop keys living in browsers;
+- and a page only runs while its tab is open, so your stop losses would stop being
+  watched the moment you closed the laptop.
+
+The panel is guarded on the assumption that a local port which can move money is
+worth attacking:
+
+| Guard | Stops |
+|---|---|
+| Session token, new each run, printed once | Any page that was not handed the link |
+| `Host` must be `localhost` or `127.0.0.1` | DNS rebinding |
+| `X-CDC-Token` required on writes | Cross-origin writes — the preflight is refused |
+| Bound to `127.0.0.1` | Anything off your machine |
+| Confirmation required to flatten | A misclick selling your positions |
+
+There is no route that can place an order, change a limit, or read your key. The
+panel can only pause, stop, or close — never open.
+
 ### Stopping it
 
 - **Ctrl-C** stops the loop and leaves positions open. Restarting picks them up
   again — a restart is not a reason to pay a round trip of fees.
-- **`kill on`** stops it opening anything new while it keeps managing what is
-  already open. Stops and targets still work. This is the one to reach for first.
+- **Pause** stops it acting on new signals while stops and targets keep running.
+- **`kill on`** (or the panel button) stops it opening anything new while it keeps
+  managing what is already open. This is the one to reach for first.
 - **`flatten`** sells everything at market, now.
 
 ---
@@ -287,8 +326,10 @@ data/KILL             present = kill switch engaged
 npm test
 ```
 
-82 tests, no network required. They cover the signature construction against
+99 tests, no network required. They cover the signature construction against
 hand-computed digests, tick-size rounding, every risk limit, and a full engine
 replay against a fake exchange — including that the bot never acts on an unclosed
 candle, never trades the same candle twice, keeps a stop working while halted, and
-that paper P&L reconciles to the starting balance exactly.
+that paper P&L reconciles to the starting balance exactly. The control panel has its
+own set covering the token, the DNS-rebinding defence, the cross-origin refusal and
+the confirmation flatten needs.

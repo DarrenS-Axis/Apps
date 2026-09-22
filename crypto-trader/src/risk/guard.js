@@ -10,7 +10,7 @@
  * slightest doubt, exits are allowed through almost anything. Being unable to
  * enter costs an opportunity; being unable to exit costs money.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { PROJECT_ROOT } from '../config.js';
 
@@ -19,6 +19,16 @@ export const KILL_SWITCH_FILE = resolve(PROJECT_ROOT, 'data/KILL');
 
 export function killSwitchEngaged() {
   return existsSync(KILL_SWITCH_FILE);
+}
+
+/** Engage the kill switch. Entries stop; open positions are still managed. */
+export function engageKillSwitch(why = 'engaged') {
+  writeFileSync(KILL_SWITCH_FILE, `${why} ${new Date().toISOString()}\n`);
+}
+
+/** Clear it again. */
+export function clearKillSwitch() {
+  if (existsSync(KILL_SWITCH_FILE)) unlinkSync(KILL_SWITCH_FILE);
 }
 
 /** @returns {{allowed: false, reason: string}} */
