@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { createDrawing, createPenetration, deletePenetration, importPenetrations, updatePenetration } from '../data/db'
+import { createDrawing, createPenetration, db, deletePenetration, importPenetrations, updatePenetration } from '../data/db'
 import { useDrawings, usePenetration, usePenetrations, useProject, useRecordPhotos, useSettings } from '../data/store'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { PlanViewer } from '../components/PlanViewer'
@@ -8,10 +8,10 @@ import { LocationLine, PlanImporter, useDeviceLocation, type Geo } from '../comp
 import { ConfirmButton, Empty, Field, IconCheck, IconPin, IconPlus, IconTrash, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 import { FIRE_ELEMENTS, FIRE_SIZES, fireProfile, matchProfiles, SCHEDULE_REVISION, type FireElement } from '../data/libraries/fireProfiles'
 import { QA_STATUS_LABEL, QA_STATUSES, type Drawing, type Penetration, type Photo, type QaStatus } from '../data/types'
-import { findTagsInPdf, tagKey } from '../lib/autopin'
+import { readingOrder, scanPenetrationPlan, tagKey, type ScannedPage, type ScanProgress } from '../lib/autopin'
 import { formatDateTime } from '../lib/format'
 import { currentPosition } from '../lib/images'
-import { importPlanFile, guessDrawingDetails } from '../lib/planImport'
+import { importPlanFile, guessDrawingDetails, type PlanPage } from '../lib/planImport'
 import { readRegisterFile, type Sheet as RegisterSheet } from '../lib/xlsx'
 import { firedocSummary } from '../lib/reporting'
 import { raiseEvent } from '../sync'
@@ -45,8 +45,7 @@ export function FiredocPage() {
   const [adding, setAdding] = useState(false)
   const [view, setView] = useState<'list' | 'plan'>('list')
   const [planId, setPlanId] = useState<string>('')
-  const [autopin, setAutopin] = useState<{ busy: boolean; message?: string }>({ busy: false })
-  const planFileRef = useRef<HTMLInputElement | null>(null)
+  const [autopinning, setAutopinning] = useState(false)
 
   const summary = useMemo(() => firedocSummary(pens), [pens])
   const filtered = useMemo(() => {
@@ -64,55 +63,6 @@ export function FiredocPage() {
     return drawings.filter((d) => ids.has(d.id))
   }, [pens, drawings])
   const activePlan = drawings.find((d) => d.id === (planId || pinnedDrawings[0]?.id))
-
-  /**
-   * Autopin: render the penetration plan PDF into drawings and search each
-   * page for the register's tags.
-   */
-  const runAutopin = async (file: File) => {
-    if (!projectId) return
-    setAutopin({ busy: true, message: 'Reading the plan…' })
-    try {
-      const numbers = pens.map((p) => p.number)
-      const plan = await importPlanFile(file, { onProgress: (p) => setAutopin({ busy: true, message: `Rendering sheet ${p.page} of ${p.total}…` }) })
-      setAutopin({ busy: true, message: 'Searching for penetration tags…' })
-      const pages = await findTagsInPdf(file, numbers)
-      let pinned = 0
-      const created: string[] = []
-      for (const page of plan.pages) {
-        const hits = pages.find((p) => p.page === page.page)?.found ?? []
-        if (!hits.length) continue
-        const guess = guessDrawingDetails(page, file.name)
-        const drawing = await createDrawing({
-          projectId,
-          number: guess.number || `${file.name.replace(/\.pdf$/i, '')} p${page.page}`,
-          title: guess.title || 'Penetration plan',
-          revision: guess.revision,
-          discipline: 'Fire penetrations',
-          imageData: page.data,
-          imageWidth: page.width,
-          imageHeight: page.height,
-          thumbData: page.thumb,
-        })
-        created.push(drawing.number)
-        for (const hit of hits) {
-          const pen = pens.find((p) => tagKey(p.number) === tagKey(hit.number))
-          if (!pen) continue
-          await updatePenetration(pen.id, { drawingId: drawing.id, x: hit.x, y: hit.y, autoPinned: true })
-          pinned++
-        }
-      }
-      const missing = numbers.length - pinned
-      setAutopin({ busy: false })
-      setView('plan')
-      showToast(`${pinned} of ${numbers.length} penetrations pinned on ${created.length} sheet${created.length === 1 ? '' : 's'}${missing ? ` · ${missing} not found on this plan` : ''}`)
-    } catch (err) {
-      setAutopin({ busy: false })
-      showToast(err instanceof Error ? err.message : 'Autopin failed.')
-    } finally {
-      if (planFileRef.current) planFileRef.current.value = ''
-    }
-  }
 
   if (!project) return <Empty title="Project not found" />
 
@@ -143,9 +93,8 @@ export function FiredocPage() {
             <Stat value={summary.outstanding} label="Outstanding" />
           </div>
           <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
-            <input ref={planFileRef} className="visually-hidden" type="file" accept="application/pdf,.pdf" onChange={(e) => e.target.files?.[0] && void runAutopin(e.target.files[0])} />
-            <button className="btn btn--ghost btn--sm" type="button" disabled={autopin.busy || pens.length === 0} onClick={() => planFileRef.current?.click()}>
-              {autopin.busy ? autopin.message : 'Autopin from penetration plan (PDF)'}
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setAutopinning(true)}>
+              Autopin from penetration plan (PDF)
             </button>
             <span className="spacer" />
             <div className="row" style={{ gap: 0 }}>
@@ -240,6 +189,18 @@ export function FiredocPage() {
       </div>
 
       {openId ? <PenetrationSheet id={openId} onClose={() => setOpenId(null)} onToast={showToast} /> : null}
+      {autopinning && projectId ? (
+        <AutopinSheet
+          projectId={projectId}
+          onClose={() => setAutopinning(false)}
+          onDone={(message, drawingId) => {
+            setAutopinning(false)
+            setPlanId(drawingId)
+            setView('plan')
+            showToast(message)
+          }}
+        />
+      ) : null}
       {importing && projectId ? <ImportSheet projectId={projectId} onClose={() => setImporting(false)} onToast={showToast} /> : null}
       {adding && projectId ? (
         <AddSheet
@@ -635,6 +596,408 @@ function ProfilePicker({
           )}
         </div>
         <span className="small muted">{list.length} of the schedule's profiles shown.</span>
+      </div>
+    </Sheet>
+  )
+}
+
+/* ------------------------------------------------------------ autopin */
+
+interface AutopinPageResult {
+  plan: PlanPage
+  scan: ScannedPage
+  number: string
+  title: string
+  revision: string
+}
+
+/**
+ * Autopin in three steps: choose the penetration plan, check what was found
+ * on a preview of the sheet, then create. Nothing is written until the last
+ * step, so a drawing that reads badly costs nothing.
+ */
+function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClose: () => void; onDone: (message: string, drawingId: string) => void }) {
+  const pens = usePenetrations(projectId)
+  const [progress, setProgress] = useState<string>('')
+  const [error, setError] = useState('')
+  const [pages, setPages] = useState<AutopinPageResult[] | null>(null)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [kind, setKind] = useState<'floor' | 'wall'>('floor')
+  const [prefix, setPrefix] = useState('F')
+  const [digits, setDigits] = useState(4)
+  const [level, setLevel] = useState('')
+  const [frl, setFrl] = useState('')
+  const [element, setElement] = useState('')
+  const [includeUntagged, setIncludeUntagged] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  const read = async (file: File | undefined) => {
+    if (!file) return
+    setError('')
+    setPages(null)
+    setBusy(true)
+    try {
+      const plan = await importPlanFile(file, { onProgress: (p) => setProgress(`Rendering sheet ${p.page} of ${p.total}…`) })
+      // Read the register straight from the database: the live query may not have loaded yet.
+      const register = await db.penetrations.where('projectId').equals(projectId).toArray()
+      const scans = await scanPenetrationPlan(file, {
+        numbers: register.map((p) => p.number),
+        onProgress: (p: ScanProgress) => setProgress(p.stage === 'reading' ? `Reading tags on sheet ${p.page} of ${p.total}…` : `Finding penetration symbols on sheet ${p.page}…`),
+      })
+      const found: AutopinPageResult[] = []
+      for (const scan of scans) {
+        if (!scan.tags.length && !scan.untagged.length) continue
+        const page = plan.pages.find((pg) => pg.page === scan.page)
+        if (!page) continue
+        const guess = guessDrawingDetails(page, file.name)
+        found.push({
+          plan: page,
+          scan,
+          number: guess.number || `${file.name.replace(/\.pdf$/i, '')}${plan.pages.length > 1 ? ` p${page.page}` : ''}`,
+          title: guess.title || 'Penetration plan',
+          revision: guess.revision ?? '',
+        })
+      }
+      if (!found.length) {
+        setError(
+          plan.kind === 'image'
+            ? 'That is an image, not a searchable PDF — Autopin needs the drawing as a PDF with a text layer. Add penetrations by hand on this image instead.'
+            : 'No penetration tags were found. Autopin reads tags like "100 FW", "ST 100" or a register number such as "F0001-FW-100mm". A scanned drawing has no text to read.',
+        )
+      } else {
+        // A wall plan says so in its title; everything else is taken as floor.
+        const text = found.map((f) => `${f.title} ${f.plan.text}`).join(' ').toUpperCase()
+        const isWall = /WALL PENETRATION/.test(text) && !/FLOOR PENETRATION|GROUND PENETRATION/.test(text)
+        setKind(isWall ? 'wall' : 'floor')
+        setPrefix(isWall ? 'W' : 'F')
+        const lvl = /\b(LEVEL|LVL|L)\s?(\d{1,2})\b/.exec(text)
+        setLevel(/GROUND/.test(text) ? 'GF' : lvl ? `L${lvl[2].padStart(2, '0')}` : '')
+      }
+      setPages(found)
+      setPageIndex(0)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that file.')
+    } finally {
+      setBusy(false)
+      setProgress('')
+    }
+  }
+
+  /** Tags that will become new penetrations, with the numbers they will get. */
+  const plannedNumbers = useMemo(() => {
+    const out = new Map<string, string>()
+    if (!pages) return out
+    const existing = new Set(pens.map((p) => p.number.toUpperCase()))
+    let n = 1
+    for (const [pi, pg] of pages.entries()) {
+      const items = [
+        ...pg.scan.tags.map((t, i) => ({ x: t.x, y: t.y, key: `${pi}:${i}`, numbered: Boolean(t.number) })),
+        ...(includeUntagged ? pg.scan.untagged.map((u, j) => ({ x: u.x, y: u.y, key: `${pi}:u${j}`, numbered: false })) : []),
+      ]
+      for (const item of readingOrder(items)) {
+        if (item.numbered) continue
+        let candidate = ''
+        do {
+          candidate = `${prefix.toUpperCase()}${String(n).padStart(digits, '0')}`
+          n++
+        } while (existing.has(candidate))
+        out.set(item.key, candidate)
+      }
+    }
+    return out
+  }, [pages, pens, prefix, digits, includeUntagged])
+
+  const current = pages?.[pageIndex]
+  const preview: Drawing | undefined = current
+    ? {
+        id: `preview-${pageIndex}`,
+        projectId,
+        number: current.number,
+        title: current.title,
+        revision: current.revision,
+        discipline: 'Fire penetrations',
+        imageData: current.plan.data,
+        imageWidth: current.plan.width,
+        imageHeight: current.plan.height,
+        createdAt: 0,
+        updatedAt: 0,
+      }
+    : undefined
+
+  const totals = useMemo(() => {
+    const tags = pages?.flatMap((p) => p.scan.tags) ?? []
+    const byType = new Map<string, number>()
+    for (const t of tags) if (t.size && t.ref && !t.number) byType.set(`${t.size} ${t.ref}`, (byType.get(`${t.size} ${t.ref}`) ?? 0) + 1)
+    const untagged = pages?.reduce((n, p) => n + p.scan.untagged.length, 0) ?? 0
+    return {
+      tags: tags.length,
+      untagged,
+      onSymbol: tags.filter((t) => t.onSymbol).length,
+      matched: tags.filter((t) => t.number).length,
+      created: tags.filter((t) => !t.number).length + (includeUntagged ? untagged : 0),
+      byType: [...byType.entries()].sort((a, b) => b[1] - a[1]),
+    }
+  }, [pages, includeUntagged])
+
+  const commit = async () => {
+    if (!pages) return
+    setBusy(true)
+    try {
+      let created = 0
+      let pinned = 0
+      let skipped = 0
+      let firstDrawing = ''
+      const pens = await db.penetrations.where('projectId').equals(projectId).toArray()
+      const drawings = await db.drawings.where('projectId').equals(projectId).toArray()
+      for (const [pi, pg] of pages.entries()) {
+        // Re-running Autopin on the same sheet must not duplicate it or its penetrations.
+        const sameSheet = drawings.find((d) => d.number === pg.number.trim() && (d.revision ?? '') === pg.revision.trim())
+        const drawing =
+          sameSheet ??
+          (await createDrawing({
+            projectId,
+            number: pg.number.trim(),
+            title: pg.title.trim(),
+            revision: pg.revision.trim(),
+            discipline: 'Fire penetrations',
+            imageData: pg.plan.data,
+            imageWidth: pg.plan.width,
+            imageHeight: pg.plan.height,
+            thumbData: pg.plan.thumb,
+          }))
+        firstDrawing ||= drawing.id
+        const onSheet = pens.filter((p) => p.drawingId === drawing.id && p.x !== undefined && p.y !== undefined)
+        for (const [i, tag] of pg.scan.tags.entries()) {
+          if (tag.number) {
+            const pen = pens.find((p) => tagKey(p.number) === tagKey(tag.number!))
+            if (pen) {
+              await updatePenetration(pen.id, { drawingId: drawing.id, x: tag.x, y: tag.y, autoPinned: true })
+              pinned++
+            }
+            continue
+          }
+          if (onSheet.some((p) => Math.hypot(p.x! - tag.x, p.y! - tag.y) < 0.006)) {
+            skipped++
+            continue
+          }
+          const number = plannedNumbers.get(`${pi}:${i}`)
+          if (!number || !tag.size || !tag.ref) continue
+          await createPenetration({
+            projectId,
+            number,
+            kind,
+            level: level || undefined,
+            size: `${tag.size}mm`,
+            sizeMm: tag.size,
+            ref: tag.ref,
+            material: '',
+            frl,
+            elementMaterial: element,
+            drawingId: drawing.id,
+            x: tag.x,
+            y: tag.y,
+            autoPinned: true,
+          })
+          created++
+        }
+        if (includeUntagged) {
+          for (const [j, u] of pg.scan.untagged.entries()) {
+            if (onSheet.some((p) => Math.hypot(p.x! - u.x, p.y! - u.y) < 0.006)) {
+              skipped++
+              continue
+            }
+            const number = plannedNumbers.get(`${pi}:u${j}`)
+            if (!number) continue
+            await createPenetration({
+              projectId,
+              number,
+              kind,
+              level: level || undefined,
+              size: '',
+              ref: u.ref ?? '',
+              material: '',
+              frl,
+              elementMaterial: element,
+              drawingId: drawing.id,
+              x: u.x,
+              y: u.y,
+              autoPinned: true,
+              notes: `Tag on the drawing is incomplete${u.ref ? ` ("${u.ref}", no size)` : ''} — confirm size and type with the consultant.`,
+            })
+            created++
+          }
+        }
+      }
+      const parts = [
+        created ? `${created} penetrations created` : '',
+        pinned ? `${pinned} register penetrations pinned` : '',
+        skipped ? `${skipped} already on this sheet` : '',
+      ].filter(Boolean)
+      onDone(parts.join(' · ') || 'Nothing new on this sheet', firstDrawing)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Sheet title="Autopin from penetration plan" onClose={onClose}>
+      <div className="stack">
+        {!pages ? (
+          <>
+            <p className="small muted" style={{ margin: 0 }}>
+              Choose the penetration drawing as a PDF. Autopin reads every tag — size and type such as <strong>100 FW</strong>, <strong>40 B</strong> or{' '}
+              <strong>ST 100</strong>, or a register number such as <strong>F0001-FW-100mm</strong> — and places a pin on the penetration symbol it labels.
+              You check the result before anything is saved.
+            </p>
+            <input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(e) => void read(e.target.files?.[0])} />
+            {busy ? <span className="small muted">{progress || 'Reading…'}</span> : null}
+            {error ? <div className="banner banner--warn">{error}</div> : null}
+          </>
+        ) : (
+          <>
+            <div className="banner banner--ok">
+              <IconCheck />
+              <div>
+                <strong>{totals.tags} tagged penetrations found</strong> on {pages.length} sheet{pages.length === 1 ? '' : 's'} — {totals.onSymbol} placed on their symbol
+                {totals.tags - totals.onSymbol ? `, ${totals.tags - totals.onSymbol} at the tag (no symbol found nearby — check these)` : ''}.
+                {totals.matched ? ` ${totals.matched} matched register numbers.` : ''}
+              </div>
+            </div>
+            {totals.untagged ? (
+              <label className="banner banner--warn" style={{ cursor: 'pointer' }}>
+                <input type="checkbox" checked={includeUntagged} onChange={(e) => setIncludeUntagged(e.target.checked)} style={{ width: 20, height: 20, minHeight: 0, flex: 'none' }} />
+                <div>
+                  <strong>
+                    {totals.untagged} more symbol{totals.untagged === 1 ? '' : 's'} with no complete tag
+                  </strong>{' '}
+                  — {pages.flatMap((p) => p.scan.untagged.map((u) => (u.ref ? `"${u.ref}"` : 'no tag'))).join(', ')}. Include them, flagged to confirm size and
+                  type with the consultant.
+                </div>
+              </label>
+            ) : null}
+            {totals.byType.length ? (
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                {totals.byType.map(([t, n]) => (
+                  <span key={t} className="chip">
+                    {t} × {n}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {pages.length > 1 ? (
+              <select value={pageIndex} onChange={(e) => setPageIndex(Number(e.target.value))} aria-label="Sheet">
+                {pages.map((p, i) => (
+                  <option key={p.plan.page} value={i}>
+                    Sheet {p.plan.page} — {p.scan.tags.length + p.scan.untagged.length} penetrations
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {current && preview ? (
+              <>
+                <PlanViewer
+                  drawing={preview}
+                  pins={[
+                    ...current.scan.tags.map((t, i) => ({
+                      id: `${pageIndex}:${i}`,
+                      drawingId: preview.id,
+                      x: t.x,
+                      y: t.y,
+                      label: t.number ?? `${t.size ?? ''}${t.ref ?? ''}`,
+                      note: t.onSymbol ? t.text : `${t.text} — at the tag, no symbol found`,
+                      createdAt: 0,
+                    })),
+                    ...(includeUntagged
+                      ? current.scan.untagged.map((u, j) => ({
+                          id: `${pageIndex}:u${j}`,
+                          drawingId: preview.id,
+                          x: u.x,
+                          y: u.y,
+                          label: `?${u.ref ?? ''}`,
+                          note: 'Symbol with no complete tag',
+                          createdAt: 0,
+                        }))
+                      : []),
+                  ]}
+                  height={380}
+                />
+                <div className="field-grid">
+                  <Field label="Drawing number">
+                    <input type="text" value={current.number} onChange={(e) => setPages(pages.map((p, i) => (i === pageIndex ? { ...p, number: e.target.value } : p)))} />
+                  </Field>
+                  <Field label="Revision">
+                    <input type="text" value={current.revision} onChange={(e) => setPages(pages.map((p, i) => (i === pageIndex ? { ...p, revision: e.target.value } : p)))} />
+                  </Field>
+                </div>
+                <Field label="Title">
+                  <input type="text" value={current.title} onChange={(e) => setPages(pages.map((p, i) => (i === pageIndex ? { ...p, title: e.target.value } : p)))} />
+                </Field>
+              </>
+            ) : null}
+
+            {totals.created ? (
+              <div className="card">
+                <div className="card__body stack">
+                  <span className="field-label">Numbering the {totals.created} new penetrations</span>
+                  <p className="small muted" style={{ margin: 0 }}>
+                    The drawing gives size and type but no numbers, so each one is numbered here, top to bottom and left to right. Numbers never change once
+                    in use.
+                  </p>
+                  <div className="field-grid">
+                    <Field label="Floor or wall">
+                      <select
+                        value={kind}
+                        onChange={(e) => {
+                          const k = e.target.value as 'floor' | 'wall'
+                          setKind(k)
+                          setPrefix(k === 'wall' ? 'W' : 'F')
+                        }}
+                      >
+                        <option value="floor">Floor</option>
+                        <option value="wall">Wall</option>
+                      </select>
+                    </Field>
+                    <Field label="Level / zone">
+                      <input type="text" value={level} onChange={(e) => setLevel(e.target.value)} placeholder="GF, L07, ZA" />
+                    </Field>
+                  </div>
+                  <div className="field-grid">
+                    <Field label="Prefix">
+                      <input type="text" value={prefix} onChange={(e) => setPrefix(e.target.value.toUpperCase().slice(0, 4))} />
+                    </Field>
+                    <Field label="Digits">
+                      <select value={digits} onChange={(e) => setDigits(Number(e.target.value))}>
+                        <option value={3}>3 — 001</option>
+                        <option value={4}>4 — 0001</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <div className="field-grid">
+                    <Field label="FRL (optional)">
+                      <input type="text" value={frl} onChange={(e) => setFrl(e.target.value)} placeholder="120/120/120" />
+                    </Field>
+                    <Field label="Building element (optional)">
+                      <input type="text" value={element} onChange={(e) => setElement(e.target.value)} placeholder="Floor slab" />
+                    </Field>
+                  </div>
+                  <span className="small muted">
+                    Numbered {[...plannedNumbers.values()][0]} to {[...plannedNumbers.values()].at(-1)}.
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="row row--end">
+              <button className="btn btn--ghost" type="button" onClick={() => setPages(null)} disabled={busy}>
+                Choose another
+              </button>
+              <button className="btn" type="button" onClick={() => void commit()} disabled={busy}>
+                {busy ? 'Saving…' : `Create ${totals.created ? `${totals.created} penetrations` : ''}${totals.created && totals.matched ? ' and ' : ''}${totals.matched ? `pin ${totals.matched}` : ''}`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </Sheet>
   )

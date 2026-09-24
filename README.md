@@ -71,10 +71,19 @@ The exported PDF carries all of it in the Controldoc layout.
   requirements document asks them for — number, size, level / zone, reference, material,
   FRL, building element, wall and floor tabs. Re-issued registers update in place; a
   number never changes once in use.
-- **Autopin from the penetration plan PDF.** The plan is rendered into drawings and
-  searched for every register number; a tag reading `F0001-FW-100mm` is found by `F0001`,
-  exactly as the requirements set out ("the dash breaks the search string"). Matched
-  penetrations are pinned where their call-out sits.
+- **Autopin from the penetration plan PDF.** Works on the drawings the industry issues —
+  a coloured penetration symbol (disc with a crosshair) with a size-and-type tag beside it
+  such as `100 FW`, `40 B`, `ST 100` or `40 IWTD`. The PDF's text is read for tags, the
+  symbols are found from the drawing's own vector linework (with an image search as a
+  fallback for scanned sheets), and each tag is paired with its nearest symbol so the pin
+  sits on the penetration, not the text. Titles, grid lines, dimensions and labels like
+  `SPECT 01` are ignored. Symbols whose tag is incomplete (`B` with no size) are offered
+  too, flagged to confirm size and type with the consultant. A preview shows every pin,
+  the types read (`40 B × 20`) and the numbers to be allocated (`F0001`… in reading order,
+  skipping numbers in use) before anything is written; the sheet is added to Plans and
+  running Autopin on it again creates no duplicates. Plans tagged with register numbers
+  (`F0001-FW-100mm`, found by `F0001` — "the dash breaks the search string") still pin
+  the imported register instead.
 - **The Passive Fire Rating Schedule is built in** — all 202 profiles across the six
   building-element sections (2hr and 4hr concrete slabs, composite steel slabs, masonry
   and plasterboard walls, speed panel), filtered by element and size, with the product,
@@ -188,7 +197,7 @@ src/
     events.ts           Power Automate event feed
   lib/
     xlsx.ts             .xlsx / .csv reader, no dependencies
-    autopin.ts          penetration tag search on plan PDFs
+    autopin.ts          penetration tags + symbols on plan PDFs
     reporting.ts        the monthly report computations
     pdf.ts              Controldoc ITP, ITP register and Reviewdoc QA report PDFs
   pages/                Welcome, StateHome, Project, Register, Itp, Firedoc,

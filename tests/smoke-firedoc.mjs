@@ -35,6 +35,58 @@ const planPath = path.join(OUT, 'penetration-plan.pdf')
   doc.text('HP-L07-001 LEVEL 07 FLOOR PENETRATIONS  REV B', 20, 200)
   fs.writeFileSync(planPath, Buffer.from(doc.output('arraybuffer')))
 }
+// The drawing hydraulic consultants actually issue: no numbers, a size-and-type
+// tag beside a filled purple crosshair symbol. It carries the traps that broke
+// earlier versions: a dimension line through a symbol, two symbols close
+// enough for their crosshairs to touch, a tag written type-first, room names
+// and dimensions that must not read as tags, and a symbol whose tag is just
+// "B" with no size.
+const industryPath = path.join(OUT, 'industry-plan.pdf')
+const INDUSTRY = [
+  { tag: '100 FW', sym: [80, 60] },
+  { tag: '40 B', sym: [140, 70] },
+  { tag: 'ST 100', sym: [200, 60] },
+  { tag: '50 SK', sym: [80, 120] }, // a dimension line runs through this one
+  { tag: '40 IWTD', sym: [150, 120] }, // these two sit 3.5 mm apart,
+  { tag: '40 B', sym: [150, 123.5], below: true }, // crosshairs touching
+  { tag: '100 WC', sym: [220, 130] },
+]
+{
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const purple = [112, 0, 149]
+  const symbol = (x, y) => {
+    doc.setFillColor(...purple)
+    doc.setDrawColor(...purple)
+    doc.circle(x, y, 1.1, 'F')
+    doc.setLineWidth(0.12)
+    doc.line(x - 1.9, y, x + 1.9, y)
+    doc.line(x, y - 1.9, x, y + 1.9)
+  }
+  doc.setFontSize(7)
+  doc.setTextColor(0, 0, 0)
+  for (const p of INDUSTRY) {
+    symbol(...p.sym)
+    doc.text(p.tag, p.sym[0] - 3, p.below ? p.sym[1] + 4.5 : p.sym[1] - 3)
+  }
+  // An incomplete tag.
+  symbol(250, 60)
+  doc.text('B', 247, 57)
+  // Linework: a dimension line straight through the 50 SK symbol, walls in grey.
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.25)
+  doc.line(40, 120, 120, 120)
+  doc.line(80, 100, 80, 140)
+  doc.setDrawColor(150, 150, 150)
+  doc.rect(30, 40, 240, 120)
+  // Things that must not be read as penetrations.
+  doc.text('SPECT 01', 100, 90)
+  doc.text('UPTAKE 03', 170, 95)
+  doc.text('2925', 60, 150)
+  doc.setFontSize(10)
+  doc.text('HC-300 GROUND PENETRATION  REV A', 30, 195)
+  fs.writeFileSync(industryPath, Buffer.from(doc.output('arraybuffer')))
+}
+
 const registerPath = path.join(OUT, 'autopin-register.csv')
 fs.writeFileSync(
   registerPath,
@@ -86,9 +138,13 @@ let pens = await stored()
 console.log('register imported:', Object.keys(pens).join(', '))
 if (Object.keys(pens).length !== 4) errors.push(`Expected 4 penetrations from the register, got ${Object.keys(pens).length}`)
 
-// --- 2. Autopin from the plan PDF.
-await page.locator('input[accept="application/pdf,.pdf"]').first().setInputFiles(planPath)
-await page.waitForFunction(() => /pinned on/.test(document.querySelector('.toast')?.textContent ?? ''), null, { timeout: 60000 })
+// --- 2. Autopin from the plan PDF, matching register numbers.
+await page.getByRole('button', { name: /Autopin from penetration plan/ }).click()
+await page.locator('.sheet input[type=file]').setInputFiles(planPath)
+await page.getByText(/tagged penetrations found/).waitFor({ timeout: 60000 })
+console.log('autopin preview:', (await page.locator('.sheet .banner').first().innerText()).replace(/\s+/g, ' '))
+await page.locator('.sheet').getByRole('button', { name: /^Create|^pin/ }).click()
+await page.waitForFunction(() => /register penetrations pinned/.test(document.querySelector('.toast')?.textContent ?? ''), null, { timeout: 30000 })
 const autopinToast = await page.locator('.toast').innerText()
 console.log('autopin:', autopinToast)
 pens = await stored()
@@ -178,6 +234,51 @@ console.log('W0001 added:', JSON.stringify({ pinned: pens.W0001?.x !== undefined
 if (!pens.W0001?.drawingId || pens.W0001.x === undefined) errors.push('W0001 was not pinned on its imported plan')
 if (pens.W0001?.lat !== -33.8688) errors.push('W0001 did not record the device location')
 await shot('04-detail')
+await page.locator('.sheet__head .iconbtn').last().click().catch(() => undefined)
+await page.waitForTimeout(300)
+
+// --- 6. An industry drawing: size-and-type tags, no numbers, no register.
+const before = Object.keys(await stored()).length
+await page.getByRole('button', { name: /Autopin from penetration plan/ }).click()
+await page.locator('.sheet input[type=file]').setInputFiles(industryPath)
+await page.getByText(/tagged penetrations found/).waitFor({ timeout: 60000 })
+const banners = (await page.locator('.sheet .banner').allInnerTexts()).map((b) => b.replace(/\s+/g, ' '))
+console.log('industry preview:', banners.join(' || '))
+if (!/7 tagged penetrations found .* 7 placed on their symbol/.test(banners[0])) errors.push(`Expected all 7 tags placed on their symbols: ${banners[0]}`)
+if (!/1 more symbol with no complete tag — "B"/.test(banners[1] ?? '')) errors.push(`Expected the "B" symbol flagged as incompletely tagged: ${banners[1]}`)
+const types = (await page.locator('.sheet .chip').allInnerTexts()).join(' | ')
+console.log('types read:', types)
+if (/SPECT|UPTAKE|2925/.test(types)) errors.push('Room names or dimensions were read as penetrations')
+if (!/100 ST/.test(types)) errors.push('Type-first tag "ST 100" was not read')
+await shot('05-industry-preview')
+await page.locator('.sheet').getByRole('button', { name: /^Create/ }).click()
+await page.waitForTimeout(1500)
+pens = await stored()
+const fresh = Object.values(pens).filter((p) => !['F0001', 'F0002', 'F0003', 'F0004', 'W0001'].includes(p.number))
+console.log('created from the industry drawing:', fresh.length, fresh.map((p) => `${p.number} ${p.size || '?'} ${p.ref}`).join(', '))
+if (fresh.length !== 8) errors.push(`Expected 8 penetrations from the industry drawing (7 tagged + 1 incomplete), got ${fresh.length}`)
+if (Object.keys(pens).length - before !== 8) errors.push('Autopin changed penetrations it should not have')
+// Positions: each tagged one within 1 mm of its symbol (297 x 210 mm page).
+for (const spec of INDUSTRY) {
+  const [sx, sy] = spec.sym
+  const [size, ref] = spec.tag.startsWith('ST') ? ['100mm', 'ST'] : [`${spec.tag.split(' ')[0]}mm`, spec.tag.split(' ')[1]]
+  const hit = fresh.find((p) => p.size === size && p.ref === ref && Math.hypot(p.x * 297 - sx, p.y * 210 - sy) < 1)
+  if (!hit) errors.push(`${spec.tag} was not placed on its symbol at ${sx},${sy} mm`)
+}
+const incomplete = fresh.find((p) => !p.size)
+if (!incomplete || incomplete.ref !== 'B' || !/confirm size and type/.test(incomplete.notes ?? '')) errors.push('The "B" symbol was not created and flagged for confirmation')
+// New numbers continue after the ones in use.
+if (!fresh.every((p) => /^F\d{4}$/.test(p.number) && Number(p.number.slice(1)) >= 5)) errors.push(`Unexpected numbering: ${fresh.map((p) => p.number).join(', ')}`)
+
+// Running Autopin on the same sheet again must not duplicate anything.
+await page.getByRole('button', { name: /Autopin from penetration plan/ }).click()
+await page.locator('.sheet input[type=file]').setInputFiles(industryPath)
+await page.getByText(/tagged penetrations found/).waitFor({ timeout: 60000 })
+await page.locator('.sheet').getByRole('button', { name: /^Create/ }).click()
+await page.waitForTimeout(1500)
+const rerun = await page.locator('.toast').innerText().catch(() => '')
+console.log('re-run:', rerun)
+if (Object.keys(await stored()).length !== Object.keys(pens).length) errors.push('Re-running Autopin on the same sheet duplicated penetrations')
 
 await browser.close()
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'Firedoc check passed.')

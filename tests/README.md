@@ -34,7 +34,11 @@ console or page error along the way.
   and an Autopin register CSV, imports the register, runs Autopin and checks it places the
   three tags on the plan where they are and leaves the fourth unplaced; places that one by
   hand, moves an autopinned pin, allocates a profile and completes — which records where the
-  device was — then adds a penetration with its plan imported from inside the sheet.
+  device was — then adds a penetration with its plan imported from inside the sheet. Then an
+  industry-style drawing (purple disc-and-crosshair symbols, tags `100 FW`, `40 B`,
+  `ST 100`, a tag with a dimension line through it, two stacked tags, an incomplete `B`,
+  and decoys such as `SPECT 01`): checks the preview reads seven tags plus one flagged
+  symbol, every pin lands on its symbol, numbers are allocated, and a re-run adds nothing.
 - `smoke-reviewdoc.mjs` — a defect raised with the plan imported from inside the sheet (a
   multi-sheet PDF, one sheet chosen), pinned and the pin moved, the device's position
   recorded (the browser is placed at Liverpool Hospital), every defect shown on the plan
