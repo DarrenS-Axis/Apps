@@ -1,295 +1,211 @@
-# Hydraulic ITP Manager
+# Axis QA
 
-An offline-first field app for raising, completing and closing out hydraulic services
-**Inspection & Test Plans**. It replaces the printed ITP with something a plumber can
-work from on a phone in a trench: the same schedule, the same hold points, the same
-sign-off block — plus timestamped photographic evidence and the ability to mark exactly
-where on the plan each inspection took place.
+The Axis Plumbing QA system as a web app: **Controldoc** (Inspection & Test Plans),
+**Firedoc** (the fire-rated penetration register) and **Reviewdoc** (the QA defect
+register), for every state, on a phone in the field, with the numbers rolling up to the
+national QA report.
 
-It exports back to a PDF laid out like the paper form it replaces, so the document
-controller receives what they already expect.
+It runs offline-first on the device and syncs to **SharePoint** in your Microsoft 365
+tenant, with **Power Automate** picking up events and list changes for notifications and
+reporting. Each state operates in its own silo; national QA sees everything.
 
----
-
-## What it does
-
-**42 hydraulic ITPs, ready to raise.** The register covers the full hydraulic scope —
-inground drainage and services (001–014), above ground services (015–029), and plant and
-equipment (030–042). Each template carries its materials verification table, its numbered
-inspection schedule, acceptance criteria citing the applicable AS/NZS standards, and an
-inspection point type per item.
-
-**Hold points that actually hold.** Every item is classified `H` (Hold), `W` (Witness),
-`S` (Surveillance) or `X` (Self inspection), the same legend printed on the paper form.
-Items below an unreleased hold point are visibly blocked, and releasing one captures the
-releasing party, their company, a reference number (inspection or consent number) and a
-drawn signature.
-
-**Timestamped photos.** Photos are taken through the rear camera or picked from the
-gallery. Capture time comes from the file's EXIF `DateTimeOriginal` where the camera
-provides it, falling back to the clock — and the record says which of the two was used,
-so the evidence trail is honest. The date, time, ITP number and area are burned into the
-image itself, so the timestamp survives the photo being copied out of the app. GPS is
-attached from EXIF or the device where available, and capture is never blocked when it
-is not.
-
-**Plans from wherever they live.** Drawings arrive as PDFs — usually a multi-sheet set
-out of SharePoint, OneDrive or a consultant's transmittal. The plan picker opens the
-device's file browser, so any cloud store already signed in on the phone (SharePoint,
-OneDrive, Google Drive, Dropbox) is a source, and on a computer you can drag a file in or
-paste one. Multi-page PDFs render every sheet and ask which one you want; the drawing
-number and revision are read off the title block where they can be determined. Rendering
-happens on the device — a drawing is never uploaded anywhere.
-
-**Highlight the section an ITP covers.** Link a drawing to an ITP, then mark it up the way
-you would a paper plan with a highlighter. **Highlight run** traces along the pipe run;
-**Box area** draws a rectangle around a zone; **Drop pin** marks a single location. Each
-mark takes a reference, an optional link to a schedule item, and a note like "110 HDPE run,
-IO at grid 3 to boundary trap" — in five colours, so several ITPs or items on the same
-drawing stay apart. Everything is drawn onto the plan extract in the exported PDF with a
-numbered legend, so the inspector sees exactly what was signed off.
-
-**Photos at a pin.** Tapping the plan drops a pin and opens it, ready for the camera —
-photos taken there are tied to that location and stamped with the pin reference, so a print
-of the photo still says where it was taken. Pins carrying evidence show a count on the
-plan, and an existing photo can be moved onto a pin afterwards from its details. The
-exported plan legend credits each pin with its photo count, and the contact sheet names the
-pin under every shot. Removing a pin keeps its photos on the ITP; they simply stop being
-located on the drawing.
-
-**Sign-off.** An installer sign-off block with drawn signature, licence / CP number and
-completion date, and a separate client / superintendent acceptance block that closes the
-ITP out.
-
-**Exports.** A per-ITP PDF matching the source layout, and a landscape ITP register for
-the whole job showing progress, open hold points and non-conformances. Full JSON backup
-and restore for moving a job between devices.
-
-**Offline.** Everything is stored in IndexedDB on the device and the app shell is
-precached by a service worker, so it works with no signal and installs to the home screen
-as a PWA.
+Live: <https://darrens-axis.github.io/Apps/>
 
 ---
+
+## How it is organised
+
+```
+National QA ───────────── every state, reporting
+  └─ State (NSW, ACT, QLD, VIC, NT, WA, SA, TAS)
+       └─ Business unit (NSW Major Works, NSW Med Gas, NSW Small Works, QLD …)
+            └─ Project (Liverpool Hospital, Pitt Street OSD …)
+                 ├─ Controldoc   ITPs from the 43-item library
+                 ├─ Firedoc      penetrations, allocated against the fire schedule
+                 ├─ Reviewdoc    costed, located, photographed defects
+                 ├─ Plans        drawings, imported from PDF, pinned and highlighted
+                 └─ Photos       timestamped, GPS-tagged evidence
+```
+
+On first run the app asks who you are, which state you work in and your access level.
+**Site** and **State QA** see only their state's business units and projects — on the
+device and in what is pulled from SharePoint. **National QA** sees every state, and the QA
+report can be switched between states or run nationally.
+
+## The three modules
+
+### Controldoc — Inspection & Test Plans
+
+The 43 hydraulic ITPs of the Axis Controldoc library, in the library's numbering (001
+Inground Sanitary Drainage … 043 Non Potable Water Tank), each with the revision and the
+installation / testing photograph minimums the library register sets. A raised ITP owns
+its own copy, so step wording and keys can be tuned to the project specification.
+
+Every ITP follows the Controldoc form:
+
+- **ITC #** — sequential across the business unit (`000299`), plus the client's document
+  reference from a per-project scheme (`LHAP-HYS-AXS-ITP-MW-{n}`) and the Controldoc
+  location path.
+- **1.0 Materials** — items and requirements, verified with batch / WaterMark references.
+- **2.0 Checklist** — steps with acceptance criteria, keyed **H** Hold Point, **M** Monitor /
+  Surveillance, **W** Witness, **X** Self Inspection by performer of work. Steps below an
+  unreleased hold point are blocked; releasing one records who, for whom, the inspection
+  reference and a drawn signature.
+- **3.0 Test record** — the fixed form: the standard's minimum criteria, service, test
+  type, times, date, pressures, equipment, loss, pass, compliance check.
+- **4.0 Attachments and photographs** — plan extracts with the covered extent highlighted
+  and pins located, and the photographic record.
+- **Axis sign-off** and the **additional sign-off** (client / superintendent), which
+  moves the ITP to Reviewed & approved.
+
+The exported PDF carries all of it in the Controldoc layout.
+
+### Firedoc — penetration register
+
+- **Import the consultants' Autopin register** (Excel or CSV) straight from the file the
+  requirements document asks them for — number, size, level / zone, reference, material,
+  FRL, building element, wall and floor tabs. Re-issued registers update in place; a
+  number never changes once in use.
+- **Autopin from the penetration plan PDF.** The plan is rendered into drawings and
+  searched for every register number; a tag reading `F0001-FW-100mm` is found by `F0001`,
+  exactly as the requirements set out ("the dash breaks the search string"). Matched
+  penetrations are pinned where their call-out sits.
+- **The Passive Fire Rating Schedule is built in** — all 202 profiles across the six
+  building-element sections (2hr and 4hr concrete slabs, composite steel slabs, masonry
+  and plasterboard walls, speed panel), filtered by element and size, with the product,
+  FRL, test reports and installation notes. A penetration cannot be completed until a
+  profile is allocated.
+- **Workflow** — Setup → In progress → Completed by site → Reviewed & approved or
+  Defected, the columns of the monthly report.
+
+### Reviewdoc — defects
+
+- Raise a defect on a QA walk: tap the plan where it is, prefix the service (Fire Rating,
+  CW, Sanitary Drainage, Incomplete work …), describe it, cost it, photograph it.
+- Rectified by site → reviewed and closed by QA.
+- **QA REPORT** export to the head contractor: cover page, then ID, location, mini map,
+  description, cost and photo per defect, as the Controldoc report lays it out.
+
+### QA report
+
+The monthly report, live, for a business unit, a state or the nation: the Firedoc summary
+(Setup / In progress / Completed by site / Reviewed & approved / Defected / Outstanding per
+project), the completed-ITP trend over three months, and Reviewdoc value and quantity by
+service type and by project.
+
+## Microsoft 365: SharePoint and Power Automate
+
+Every record is written to the device first and queued for SharePoint, so the app behaves
+identically with no signal. Set up once, from Settings → Microsoft 365:
+
+1. An Entra ID **single-page application** registration (no secret — PKCE) with delegated
+   `User.Read`, `Sites.ReadWrite.All`, `Files.ReadWrite.All`. Tenant ID and client ID go
+   into Settings.
+2. The SharePoint site URL. **Provision** creates the seven `QA …` lists and the
+   `QA Files` library, and adds any column an upgrade needs. Safe to run again.
+3. **Sync now**, or leave it: the app syncs on coming online, on returning to the tab and
+   every five minutes.
+
+Each list carries the full record as JSON plus plain columns — state, project, status,
+ITC number, cost, profile — so Power Automate and Power BI filter and total without
+parsing anything. Each state pulls only its own records; national QA pulls all.
+
+The app also posts events (`itp.completed_by_site`, `itp.hold_point_reached`,
+`penetration.defected`, `defect.raised` …) to a Power Automate **When an HTTP request is
+received** URL. `flows/README.md` sets out the three flows — notify the state QA channel,
+hold point reminders, the scheduled monthly report — with the list columns and the
+request schema, and `flows/notify-state-qa.json` is the first flow's definition.
+
+Not configured? The app is fully usable on the device, with JSON backup and restore
+between devices.
 
 ## Running it
 
 ```bash
 npm install
-npm run dev        # development server
-npm run build      # production build to dist/
-npm run preview    # serve the production build
-npm run typecheck  # TypeScript, no emit
+npm run dev          # http://localhost:5173
+npm run build        # production build in dist/
+npm run preview      # serve dist/ locally
 ```
 
-`dist/` is a static bundle — host it anywhere, including a subdirectory. Routing is
-hash-based and asset paths are relative, so no server rewrite rules are needed.
+Deploys to GitHub Pages from `.github/workflows/deploy-pages.yml` on every push. Add the
+Pages URL as a redirect URI on the Entra app registration.
 
-**The camera, GPS and offline service worker require a secure context** — `https://` or
-`localhost`. Over plain `http` on a LAN address the screens work but the camera button
-does not, so test on a phone via the deployed URL rather than `--host`.
+## Tests
 
-### Deploying
+Nine Playwright suites drive the production build in a real browser, including
+`smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
+provision, push from one device, pull on a fresh one, the QLD silo and the national
+roll-up. See `tests/README.md`.
 
-`.github/workflows/deploy-pages.yml` builds and publishes to GitHub Pages on every push
-to `main` (and, while the app lives there, to the feature branch), or on demand from the
-Actions tab. It needs one manual step first:
+```bash
+npm run build && npx vite preview --port 4173 --host 127.0.0.1 &
+npm install --no-save playwright
+npm run smoke
+```
 
-> Repository **Settings → Pages → Build and deployment → Source: GitHub Actions**
+## Maintenance
 
-Without that the workflow builds green but never publishes. The site then lives at
-`https://<owner>.github.io/<repo>/` — a subpath, which the relative asset paths and hash
-routing handle without configuration.
+- **Fire schedule revised** — `python3 tools/import-fire-schedule.py <xlsx> "<revision>"`
+  regenerates `src/data/libraries/fireProfiles.ts`.
+- **ITP library** — `src/data/libraries/itpLibrary.ts` is the register; the checklist
+  content lives in `src/data/templates/`.
+- **Business units** — seeded from `src/data/libraries/states.ts`; edit, add and rename in
+  Settings.
+- **Worked examples** — `examples/` holds exported ITPs; `tools/make-examples.mjs`
+  regenerates them by driving the app.
 
-For a one-off with no repository setup, `npm run build` then drag `dist/` onto
-[app.netlify.com/drop](https://app.netlify.com/drop).
-
----
-
-## Using it on site
-
-1. **Settings** — enter your name and initials once. They are stamped into the
-   "Initial & Date" column each time you sign an item. Optionally save a signature.
-2. **Job** — create the job with its number, stage, client and the person who approves
-   ITPs for use. These fill the header block of every exported ITP.
-3. **Plans** — add the drawings you are working to. Pick the PDF straight out of
-   SharePoint or OneDrive through the file picker; choose the sheet if it is a set.
-4. **ITPs → ITP register** — find the ITP for the service you are installing, raise it
-   against an area (one per discrete section, as the paper form is issued), and tick the
-   drawings it is inspected against.
-5. **Work through the schedule** — tap an item to open it, record the result, capture the
-   measured value where one is asked for, take photos, and sign. Hold and witness points
-   prompt for a release or a notice.
-6. **Plans tab** — highlight the run or area this ITP covers, and drop pins where specific
-   inspections took place, photographing each one from the pin itself.
-7. **Sign-off** — sign when everything is signed and clear, then export the PDF.
-
----
-
-## Templates and standards
-
-Templates cite AS/NZS standards as a **starting point** — AS/NZS 3500 parts 1 to 4,
-AS/NZS 5601.1, AS/NZS 1596, AS 2419.1, AS 2118.1, AS 2941, AS 2441, AS 2304, AS 1940 and
-others as they apply to each service. They are written to reflect common Australian
-practice, not to replace the project's own quality plan.
-
-Every raised ITP takes its **own copy** of the schedule. Item wording, acceptance
-criteria, the nominated releasing party and the inspection point type are all editable on
-the instance, so an ITP can be tuned to the project specification, the head contractor's
-quality requirements or the local authority's conditions without touching the register.
-Review each ITP against the project's hydraulic specification and the approved quality
-plan before it is issued for use.
-
----
-
-## Architecture
+## Layout
 
 ```
 src/
   data/
-    types.ts              domain model — ITPs, items, point types, photos, pins
-    db.ts                 Dexie schema and all read/write operations
-    store.ts              React hooks over Dexie liveQuery
-    templates/
-      common.ts           reusable schedule rows (excavation, bedding, testing …)
-      belowGround.ts      ITPs 001–014
-      aboveGround.ts      ITPs 015–029
-      plant.ts            ITPs 030–042
+    types.ts            domain model: states, business units, projects, ITPs,
+                        penetrations, defects, photos, sync
+    db.ts               Dexie store, migrations, outbox that feeds SharePoint
+    store.ts            live-query hooks, state-scoped
+    libraries/          itpLibrary (43), fireProfiles (202), states
+    templates/          Controldoc checklist content
+  sync/
+    auth.ts             Entra ID sign-in (MSAL, loaded on demand)
+    graph.ts            Microsoft Graph client
+    schema.ts           list columns and record → fields mapping
+    provision.ts        creates lists, library and columns
+    engine.ts           outbox push, state-scoped pull, file upload
+    events.ts           Power Automate event feed
   lib/
-    exif.ts               minimal EXIF reader — capture time, GPS, orientation
-    images.ts             downscaling, orientation, timestamp burn-in, capture
-    planImport.ts         PDF and image plan import, sheet picker, title-block guess
-    format.ts             dates, progress, hold-point blocking, status derivation
-    pdf.ts                ITP and register PDF export
-  components/
-    PlanViewer.tsx        canvas plan renderer — pan, pinch, pins and region markup
-    ErrorBoundary.tsx     keeps one broken screen from blanking the whole app
-    PhotoCapture.tsx      camera and gallery capture, grid, lightbox
-    ui.tsx                icons, sheets, fields, signature pad, toasts
-  pages/                  one file per screen
+    xlsx.ts             .xlsx / .csv reader, no dependencies
+    autopin.ts          penetration tag search on plan PDFs
+    reporting.ts        the monthly report computations
+    pdf.ts              Controldoc ITP, ITP register and Reviewdoc QA report PDFs
+  pages/                Welcome, StateHome, Project, Register, Itp, Firedoc,
+                        Reviewdoc, Drawings, Photos, Reports, Settings
+flows/                  Power Automate guide and flow definition
+tests/                  browser suites and the mock Graph server
 ```
 
-**Why these choices.** Dexie's `liveQuery` drives the UI directly, so a photo saved on one
-screen appears everywhere without a separate state layer. The EXIF reader is ~180 lines
-rather than a dependency, because only three tags are needed. The PDF is drawn with jsPDF
-primitives rather than by screenshotting the DOM, so the output is selectable text at a
-fixed A4 layout regardless of what the phone was rendering. There is no CSS framework —
-the design tokens and components in `styles/app.css` are sized for gloved hands in
-daylight.
+## Design notes
 
-**Photos and pins.** A photo names its pin rather than repeating its coordinates, so moving
-or relabelling a pin never leaves a photo pointing at a stale location, and deleting a pin
-detaches the photo instead of destroying evidence. Dropping a pin creates it immediately
-and opens one sheet holding its label, note and camera — an earlier version showed a
-placement dialog and then a detail dialog with the same fields twice.
+**Offline first, SharePoint second.** A hook on every synced table queues the change once
+its transaction commits; the outbox is drained on sync and a failed push is retried, so a
+phone in a plant room and a laptop in the office write the same store. Last writer wins on
+`updatedAt`, and a local record with an edit still queued is never overwritten by an older
+remote copy. Photos and plans go to the document library; the list holds the thumbnail
+and the path, and the full image is fetched when it is first needed.
 
-**The plan is drawn on a canvas, not scaled as an image.** This is the fix for a crash
-reported from site. A CSS-transformed `<img>` is composited as one layer covering the whole
-*scaled* drawing, so a 2600 px plan zoomed in became a layer tens of thousands of pixels
-per side — around 690 megapixels — far past the 4096-8192 px texture limit on phone GPUs.
-The tab was killed, first while pinching and then while panning around at zoom. Desktop
-tiles its way through it, which is why it took a report from a phone to surface.
+**The state is enforced by the pull, not just the screen.** A device asks SharePoint for
+its state's records only, so a NSW phone never holds QLD data to leak.
 
-The viewer now paints only the visible slice of the plan into a canvas the size of the
-viewport, so the composited surface is one screen whatever the zoom and memory stays flat.
+**Seeded business units are stamped `updatedAt 0` and never uploaded.** A unit renamed in
+one place is newer than any seed, so it wins everywhere, and a fresh device cannot push
+the defaults back over it.
 
-**Gestures have to be taken from the browser explicitly.** React registers `touchmove` and
-`wheel` as passive listeners on its root, so `preventDefault()` from a React handler is
-ignored — they are bound directly and non-passively instead. iOS Safari goes further: it
-handles pinch through its own `gesture*` events and page-zooms regardless of
-`touch-action: none`, cancelling the app's pointers mid-gesture, so those are blocked on
-the viewer too. Pointer capture was dropped entirely: Safari throws from
-`setPointerCapture` in several situations, and an exception there skipped the rest of the
-handler, leaving the plan unable to pan or pinch at all.
-Zoom quality improved as a side effect: the visible region is drawn at native resolution
-rather than being a magnified bitmap. Pins remain DOM buttons — they are a constant size on
-screen, so they cost nothing and stay real, focusable controls — while highlights are
-painted and hit-tested against their own path.
+**The plan is drawn on a canvas, not scaled as an image**, so a 2600 px plan zoomed to 16×
+is one viewport of GPU memory rather than a 690-megapixel layer — the cause of the
+original crashes on site. Gestures are tracked on the window because a pinch releases its
+fingers off the viewer, and a new touch flagged primary clears the pointer map, so a
+missed release cannot wedge it.
 
-**Gestures are followed on the window, and the plan cannot be lost.** Pinching spreads the
-fingers well past a 420 px-tall viewer, so a finger is routinely released outside it —
-bound to the element, that `pointerup` was never heard, the pointer stayed in the tracked
-map for good, and the next one-finger drag counted as two pointers, was taken for a pinch,
-and did nothing. Tracking moved to the window, and a new touch flagged `isPrimary` clears
-the map outright: by the spec nothing else can still be down, so anything left is a release
-that went missing. Age is the fallback for mice and pens, and losing the window or the tab
-resets the gesture too.
-
-Panning is clamped to keep at least 72 px of the drawing on screen. It was unbounded
-before, so once zoomed in a couple of firm drags pushed the plan clean out of the viewport
-and left a blank panel that looks exactly like a viewer that has died. Settings →
-Troubleshooting turns on a live readout of pointer count, pinch/pan state, scale and
-offset, so a fault that only appears on one phone can be reported as numbers rather than
-described.
-
-**Getting back to the jobs list.** The tab bar is scoped to one job, so a folder
-link in the header opens the home page listing every job on the device. It matters more
-than it looks: the header's job switcher only appears once there is a second job, so with
-one job there was previously no way back to that list at all. That switcher was also
-white text on a white control — it inherits the bar's colour and the app's control
-surface — so it read as an empty box; it now takes the bar's own palette.
-
-**Branding.** A job carries the head contractor's logo and its own contractor
-logo, attached from a file in Job details and stored as PNG so a mark supplied on a
-transparent background stays transparent — JPEG has no alpha and would print a black
-block behind it. The head contractor's logo and business name head every exported page;
-the contractor's fills the cell the paper form leaves for it, falling back to their name
-when no logo is attached. `examples/` holds four ITPs exported this way as worked
-examples.
-
-**Plan markup.** Regions are stored as normalised 0..1 coordinates against the drawing, so
-a highlight stays put whatever resolution the plan was rendered at and whatever the device
-zoom. They live on the ITP rather than the drawing, because the question being answered is
-"which part does *this* ITP cover" — so the same drawing carries different markup for each
-ITP raised against it, and duplicating an ITP to a new area starts with a clean plan.
-
-**Plan import.** pdf.js renders drawing PDFs, loaded on demand — it is a megabyte, and
-most site sessions never add a drawing. It uses pdf.js's *legacy* build on purpose: the
-modern build relies on very recent JavaScript that throws on phones already in use on
-site. The title-block guess is deliberately conservative and will leave the drawing number
-blank rather than offer one it is unsure of, because a wrong number silently recorded
-against an ITP is worse than a field someone has to fill in.
-
-**Offline.** The service worker reads `index.html` on install and precaches exactly the
-bundle it references, rather than trusting the HTTP cache, which is evictable. Cache
-lookups pass `ignoreVary`: hosts commonly send `Vary: Origin` or `Vary: Accept-Encoding`
-and the app's script tags carry `crossorigin`, so without it the shell caches and is then
-never found — which looks perfect online and blank on site.
-
-**Storage.** Records live in IndexedDB, photos as downscaled JPEG data URLs on their own
-table so the frequently-read ITP records stay small. Photo size is configurable in
-Settings; 1600 px on the long edge is the default and is ample for an ITP record. Back up
-regularly — clearing site data deletes everything.
-
----
-
-## Verified
-
-Three Playwright suites drive the production build in a real browser (`npm run smoke`,
-see `tests/README.md`):
-
-- **core** — all 42 templates render in the register, an ITP is raised, items signed,
-  hold points displayed, materials and sign-off screens exercised, PDF exported, plus a
-  desktop viewport pass.
-- **evidence** — a plan is loaded and pinned, a photo captured and stamped, a hold point
-  released with a drawn signature, and the exported PDF checked for the header block,
-  materials table, schedule, sign-off and the photographic record page with the pinned
-  plan.
-- **plan import** — a multi-sheet PDF is imported, every sheet rendered, the right one
-  picked, the drawing number read off the file name (and *not* mistaken for a pipe spec
-  like PM64), then linked to an ITP and pinned.
-- **regions** — a run is traced and an area boxed on a plan, both are listed, panning does
-  not leave stray marks, the markup reaches the exported PDF, and it all survives a reload.
-- **pin photos** — photos captured at a pin, the count shown on the plan, an existing photo
-  reassigned to a pin, the pin credited in the exported PDF, and the evidence kept when the
-  pin is removed.
-- **pinch** — real two-finger touch events on a large plan: the composited surface stays
-  one viewport however hard it is pinched, two fingers landing on the same spot do not jump
-  the zoom, and the plan still pans after one finger is lifted mid-pinch.
-- **gesture recovery** — the sequence reported from site: drag, pinch with the fingers
-  released off the viewer, then drag again, repeatedly and with staggered releases; plus
-  flinging the plan at zoom, which must leave it on screen and still draggable.
-- **offline** — the service worker activates, the bundle is genuinely precached (not just
-  reachable), the app survives a reload with the network fully cut, and all 42 templates
-  stay available with no signal.
-
-They also pass served from a subpath, which is how GitHub Pages serves it.
+**The ITP register is data, not code.** The 43 titles, revisions and photograph minimums
+are the library spreadsheet; the checklist content is composed from shared rows, so a
+change to how a hydrostatic test is described lands on every ITP that has one.

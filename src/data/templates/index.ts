@@ -4,7 +4,8 @@ import { aboveGroundTemplates } from './aboveGround'
 import { plantTemplates } from './plant'
 
 /**
- * The hydraulic ITP register — templates 001 to 042.
+ * The Controldoc ITP library — templates 001 to 043, in the library's own
+ * numbering.
  *
  * Every template is a starting point: once an ITP is raised from a template the
  * instance owns its own copy of the schedule, so item wording, acceptance
@@ -34,8 +35,8 @@ export function searchTemplates(query: string): ItpTemplate[] {
 }
 
 /** Count of hold and witness points in a template, shown in the register. */
-export function templatePointCounts(t: ItpTemplate): { H: number; W: number; S: number; X: number } {
-  const counts = { H: 0, W: 0, S: 0, X: 0 }
+export function templatePointCounts(t: ItpTemplate): { H: number; W: number; M: number; X: number } {
+  const counts = { H: 0, W: 0, M: 0, X: 0 }
   for (const i of t.items) counts[i.point] += 1
   return counts
 }

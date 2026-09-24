@@ -1,0 +1,725 @@
+import { useMemo, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
+import { createDrawing, createPenetration, deletePenetration, importPenetrations, updatePenetration } from '../data/db'
+import { useDrawings, usePenetration, usePenetrations, useProject, useRecordPhotos, useSettings } from '../data/store'
+import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
+import { PlanViewer } from '../components/PlanViewer'
+import { ConfirmButton, Empty, Field, IconCheck, IconPlus, IconTrash, IconWarn, Sheet, Toast, useToast } from '../components/ui'
+import { FIRE_ELEMENTS, FIRE_SIZES, fireProfile, matchProfiles, SCHEDULE_REVISION, type FireElement } from '../data/libraries/fireProfiles'
+import { QA_STATUS_LABEL, QA_STATUSES, type Penetration, type Photo, type QaStatus } from '../data/types'
+import { findTagsInPdf, tagKey } from '../lib/autopin'
+import { formatDateTime } from '../lib/format'
+import { importPlanFile, guessDrawingDetails } from '../lib/planImport'
+import { readRegisterFile, type Sheet as RegisterSheet } from '../lib/xlsx'
+import { firedocSummary } from '../lib/reporting'
+import { raiseEvent } from '../sync'
+
+const STATUS_CLASS: Record<QaStatus, string> = {
+  setup: '',
+  in_progress: 'chip--warn',
+  completed_by_site: 'chip--ok',
+  reviewed_approved: 'chip--accent',
+  defected: 'chip--hold',
+}
+
+/* ------------------------------------------------------------ register */
+
+/**
+ * Firedoc for one project: the penetration register, the plans it is pinned
+ * on, and the review workflow.
+ */
+export function FiredocPage() {
+  const { projectId } = useParams()
+  const project = useProject(projectId)
+  const pens = usePenetrations(projectId)
+  const drawings = useDrawings(projectId)
+  const settings = useSettings()
+  const [toast, showToast] = useToast()
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<QaStatus | ''>('')
+  const [kind, setKind] = useState<'' | 'floor' | 'wall'>('')
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [view, setView] = useState<'list' | 'plan'>('list')
+  const [planId, setPlanId] = useState<string>('')
+  const [autopin, setAutopin] = useState<{ busy: boolean; message?: string }>({ busy: false })
+  const planFileRef = useRef<HTMLInputElement | null>(null)
+
+  const summary = useMemo(() => firedocSummary(pens), [pens])
+  const filtered = useMemo(() => {
+    const q = query.trim().toUpperCase()
+    return pens.filter(
+      (p) =>
+        (!status || p.status === status) &&
+        (!kind || p.kind === kind) &&
+        (!q || [p.number, p.ref, p.size, p.material, p.level, p.zone, p.profileId].join(' ').toUpperCase().includes(q)),
+    )
+  }, [pens, query, status, kind])
+
+  const pinnedDrawings = useMemo(() => {
+    const ids = new Set(pens.map((p) => p.drawingId).filter(Boolean))
+    return drawings.filter((d) => ids.has(d.id))
+  }, [pens, drawings])
+  const activePlan = drawings.find((d) => d.id === (planId || pinnedDrawings[0]?.id))
+
+  /**
+   * Autopin: render the penetration plan PDF into drawings and search each
+   * page for the register's tags.
+   */
+  const runAutopin = async (file: File) => {
+    if (!projectId) return
+    setAutopin({ busy: true, message: 'Reading the plan…' })
+    try {
+      const numbers = pens.map((p) => p.number)
+      const plan = await importPlanFile(file, { onProgress: (p) => setAutopin({ busy: true, message: `Rendering sheet ${p.page} of ${p.total}…` }) })
+      setAutopin({ busy: true, message: 'Searching for penetration tags…' })
+      const pages = await findTagsInPdf(file, numbers)
+      let pinned = 0
+      const created: string[] = []
+      for (const page of plan.pages) {
+        const hits = pages.find((p) => p.page === page.page)?.found ?? []
+        if (!hits.length) continue
+        const guess = guessDrawingDetails(page, file.name)
+        const drawing = await createDrawing({
+          projectId,
+          number: guess.number || `${file.name.replace(/\.pdf$/i, '')} p${page.page}`,
+          title: guess.title || 'Penetration plan',
+          revision: guess.revision,
+          discipline: 'Fire penetrations',
+          imageData: page.data,
+          imageWidth: page.width,
+          imageHeight: page.height,
+          thumbData: page.thumb,
+        })
+        created.push(drawing.number)
+        for (const hit of hits) {
+          const pen = pens.find((p) => tagKey(p.number) === tagKey(hit.number))
+          if (!pen) continue
+          await updatePenetration(pen.id, { drawingId: drawing.id, x: hit.x, y: hit.y, autoPinned: true })
+          pinned++
+        }
+      }
+      const missing = numbers.length - pinned
+      setAutopin({ busy: false })
+      setView('plan')
+      showToast(`${pinned} of ${numbers.length} penetrations pinned on ${created.length} sheet${created.length === 1 ? '' : 's'}${missing ? ` · ${missing} not found on this plan` : ''}`)
+    } catch (err) {
+      setAutopin({ busy: false })
+      showToast(err instanceof Error ? err.message : 'Autopin failed.')
+    } finally {
+      if (planFileRef.current) planFileRef.current.value = ''
+    }
+  }
+
+  if (!project) return <Empty title="Project not found" />
+
+  return (
+    <>
+      <div className="section-title">
+        <h2>Firedoc</h2>
+        <span>{pens.length} penetrations</span>
+        <span className="spacer" />
+        <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImporting(true)}>
+          Import register
+        </button>
+        <button className="btn btn--sm" type="button" onClick={() => setAdding(true)}>
+          <IconPlus />
+          Add
+        </button>
+      </div>
+
+      {/* The report's columns, live. */}
+      <div className="card">
+        <div className="card__body">
+          <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>
+            <Stat value={summary.total} label="Setup" />
+            <Stat value={summary.in_progress} label="In progress" />
+            <Stat value={summary.completed_by_site} label="Completed by site" />
+            <Stat value={summary.reviewed_approved} label="Reviewed & approved" />
+            <Stat value={summary.defected} label="Defected" tone={summary.defected ? 'hold' : undefined} />
+            <Stat value={summary.outstanding} label="Outstanding" />
+          </div>
+          <div className="row" style={{ marginTop: 12, gap: 8, flexWrap: 'wrap' }}>
+            <input ref={planFileRef} className="visually-hidden" type="file" accept="application/pdf,.pdf" onChange={(e) => e.target.files?.[0] && void runAutopin(e.target.files[0])} />
+            <button className="btn btn--ghost btn--sm" type="button" disabled={autopin.busy || pens.length === 0} onClick={() => planFileRef.current?.click()}>
+              {autopin.busy ? autopin.message : 'Autopin from penetration plan (PDF)'}
+            </button>
+            <span className="spacer" />
+            <div className="row" style={{ gap: 0 }}>
+              <button className={`btn btn--sm ${view === 'list' ? '' : 'btn--ghost'}`} type="button" onClick={() => setView('list')}>
+                List
+              </button>
+              <button className={`btn btn--sm ${view === 'plan' ? '' : 'btn--ghost'}`} type="button" onClick={() => setView('plan')} disabled={pinnedDrawings.length === 0}>
+                Plan
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {view === 'plan' && activePlan ? (
+        <div className="card">
+          <div className="card__body">
+            {pinnedDrawings.length > 1 ? (
+              <select value={activePlan.id} onChange={(e) => setPlanId(e.target.value)} style={{ marginBottom: 10 }}>
+                {pinnedDrawings.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.number} — {d.title}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <PlanViewer
+              drawing={activePlan}
+              pins={pens
+                .filter((p) => p.drawingId === activePlan.id && p.x !== undefined && p.y !== undefined)
+                .map((p) => ({ id: p.id, drawingId: activePlan.id, x: p.x!, y: p.y!, label: p.number, note: `${p.size} ${p.ref} · ${QA_STATUS_LABEL[p.status]}`, createdAt: p.createdAt }))}
+              onSelectPin={(pin) => setOpenId(pin.id)}
+              selectedPinId={openId ?? undefined}
+              height={480}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="searchbar" style={{ marginTop: 12 }}>
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search number, size, ref, material, profile" />
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <select value={status} onChange={(e) => setStatus(e.target.value as QaStatus | '')} style={{ flex: 1 }}>
+          <option value="">All statuses</option>
+          {QA_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {QA_STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+        <select value={kind} onChange={(e) => setKind(e.target.value as '' | 'floor' | 'wall')} style={{ flex: 1 }}>
+          <option value="">Floor and wall</option>
+          <option value="floor">Floor</option>
+          <option value="wall">Wall</option>
+        </select>
+      </div>
+
+      <div className="card card__body--flush">
+        {pens.length === 0 ? (
+          <Empty
+            title="No penetrations yet"
+            hint="Import the consultants' Autopin register (Excel or CSV), or add penetrations one at a time."
+          />
+        ) : filtered.length === 0 ? (
+          <Empty title="Nothing matches" />
+        ) : (
+          filtered.map((p) => {
+            const profile = fireProfile(p.profileId)
+            return (
+              <button key={p.id} className="listitem" type="button" onClick={() => setOpenId(p.id)}>
+                <span className="listitem__num" style={{ fontSize: 11 }}>
+                  {p.number}
+                </span>
+                <span className="listitem__main">
+                  <strong>
+                    {p.size} {p.ref} · {p.material} · {p.kind === 'wall' ? 'Wall' : 'Floor'}
+                    {p.level ? ` · ${p.level}` : ''}
+                  </strong>
+                  <span>{profile ? profile.id : p.profileId ? p.profileId : 'No fire profile allocated'}</span>
+                  <span className="row" style={{ marginTop: 6, gap: 6 }}>
+                    <span className={`chip ${STATUS_CLASS[p.status]}`}>{QA_STATUS_LABEL[p.status]}</span>
+                    {p.frl ? <span className="chip">FRL {p.frl}</span> : null}
+                    {p.drawingId ? <span className="chip chip--surv">{p.autoPinned ? 'Autopinned' : 'Pinned'}</span> : <span className="chip chip--warn">Not on a plan</span>}
+                  </span>
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+
+      {openId ? <PenetrationSheet id={openId} onClose={() => setOpenId(null)} onToast={showToast} /> : null}
+      {importing && projectId ? <ImportSheet projectId={projectId} onClose={() => setImporting(false)} onToast={showToast} /> : null}
+      {adding && projectId ? (
+        <AddSheet
+          projectId={projectId}
+          onClose={() => setAdding(false)}
+          onAdded={(id) => {
+            setAdding(false)
+            setOpenId(id)
+          }}
+        />
+      ) : null}
+      <Toast message={toast} />
+      <p className="small muted" style={{ marginTop: 14 }}>
+        Profiles from the Axis Passive Fire Rating Schedule {SCHEDULE_REVISION}. Entered by {settings.userName || 'you'}.
+      </p>
+    </>
+  )
+}
+
+function Stat({ value, label, tone }: { value: number; label: string; tone?: 'hold' }) {
+  return (
+    <div style={{ minWidth: 86 }}>
+      <div style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: tone === 'hold' && value ? 'var(--hold)' : 'var(--ink)' }}>{value}</div>
+      <div className="small muted">{label}</div>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------- detail */
+
+function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () => void; onToast: (m: string) => void }) {
+  const pen = usePenetration(id)
+  const settings = useSettings()
+  const photos = useRecordPhotos('penetrationId', id)
+  const [viewing, setViewing] = useState<Photo | null>(null)
+  const [pickingProfile, setPickingProfile] = useState(false)
+  const [defectNote, setDefectNote] = useState('')
+
+  if (!pen) return null
+  const profile = fireProfile(pen.profileId)
+  const patch = (changes: Partial<Penetration>) => updatePenetration(pen.id, changes)
+
+  const setStatus = async (status: QaStatus) => {
+    const changes: Partial<Penetration> = { status }
+    if (status === 'completed_by_site') Object.assign(changes, { installedBy: settings.userName, installedAt: Date.now() })
+    if (status === 'reviewed_approved') Object.assign(changes, { reviewedBy: settings.userName, reviewedAt: Date.now(), defect: undefined })
+    if (status === 'defected') Object.assign(changes, { reviewedBy: settings.userName, reviewedAt: Date.now(), defect: defectNote })
+    if (status === 'in_progress' && pen.status === 'defected') changes.rectifiedAt = Date.now()
+    await patch(changes)
+    if (status === 'completed_by_site' || status === 'defected') {
+      await raiseEvent({
+        event: status === 'defected' ? 'penetration.defected' : 'penetration.completed_by_site',
+        projectId: pen.projectId,
+        record: { number: pen.number, size: pen.size, ref: pen.ref, profile: pen.profileId, defect: defectNote || undefined },
+        summary: `Penetration ${pen.number} ${QA_STATUS_LABEL[status].toLowerCase()}${defectNote ? ` — ${defectNote}` : ''}`,
+      })
+    }
+    onToast(`${pen.number}: ${QA_STATUS_LABEL[status]}`)
+  }
+
+  return (
+    <Sheet title={`Penetration ${pen.number}`} onClose={onClose}>
+      <div className="stack">
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <span className={`chip ${STATUS_CLASS[pen.status]}`}>{QA_STATUS_LABEL[pen.status]}</span>
+          <span className="chip">{pen.kind === 'wall' ? 'Wall' : 'Floor'}</span>
+          {pen.frl ? <span className="chip">FRL {pen.frl}</span> : null}
+          {pen.autoPinned ? <span className="chip chip--surv">Autopinned</span> : null}
+        </div>
+
+        <div className="field-grid">
+          <Field label="Size">
+            <input type="text" value={pen.size} onChange={(e) => void patch({ size: e.target.value, sizeMm: parseInt(e.target.value, 10) || undefined })} />
+          </Field>
+          <Field label="Reference (FW, SS, WC…)">
+            <input type="text" value={pen.ref} onChange={(e) => void patch({ ref: e.target.value.toUpperCase() })} />
+          </Field>
+        </div>
+        <div className="field-grid">
+          <Field label="Material">
+            <input type="text" value={pen.material} onChange={(e) => void patch({ material: e.target.value })} />
+          </Field>
+          <Field label="Building element">
+            <input type="text" value={pen.elementMaterial} onChange={(e) => void patch({ elementMaterial: e.target.value })} placeholder="Floor slab, block wall, 128mm FR plasterboard" />
+          </Field>
+        </div>
+        <div className="field-grid">
+          <Field label="Level">
+            <input type="text" value={pen.level ?? ''} onChange={(e) => void patch({ level: e.target.value })} />
+          </Field>
+          <Field label="Zone">
+            <input type="text" value={pen.zone ?? ''} onChange={(e) => void patch({ zone: e.target.value })} />
+          </Field>
+        </div>
+
+        <div className="card">
+          <div className="card__body">
+            <div className="row" style={{ alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span className="field-label">Fire profile</span>
+                {profile ? (
+                  <>
+                    <strong className="small">{profile.id}</strong>
+                    <div className="small muted">
+                      {profile.supplier} {profile.product} · {profile.treatment} · {profile.productFrl}
+                    </div>
+                    <div className="small muted">{FIRE_ELEMENTS[profile.element]}</div>
+                    {profile.installationNotes ? <div className="small" style={{ marginTop: 6 }}>{profile.installationNotes}</div> : null}
+                    {profile.reportSummary ? <div className="small muted" style={{ marginTop: 4 }}>{profile.reportSummary}</div> : null}
+                  </>
+                ) : (
+                  <span className="small muted">Not allocated. The profile decides which collar is compliant here.</span>
+                )}
+              </div>
+              <button className="btn btn--ghost btn--sm" type="button" onClick={() => setPickingProfile(true)}>
+                {profile ? 'Change' : 'Allocate'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <Field label="Sticker / label no.">
+          <input type="text" value={pen.stickerNo ?? ''} onChange={(e) => void patch({ stickerNo: e.target.value })} />
+        </Field>
+
+        <div>
+          <span className="field-label">Photos ({photos.length})</span>
+          <PhotoCaptureButtons
+            settings={settings}
+            target={{ penetrationId: pen.id, projectId: pen.projectId, contextLines: [`Firedoc ${pen.number} · ${pen.size} ${pen.ref} ${pen.material}`, profile?.id ?? ''] }}
+            defaultCategory="installation"
+            onCaptured={() => onToast('Photo added')}
+            onError={onToast}
+          />
+          {photos.length ? (
+            <div style={{ marginTop: 10 }}>
+              <PhotoGrid photos={photos} onOpen={setViewing} />
+            </div>
+          ) : null}
+        </div>
+
+        <div className="card">
+          <div className="card__body stack">
+            <span className="field-label">Workflow</span>
+            {pen.status === 'setup' || pen.status === 'in_progress' || pen.status === 'defected' ? (
+              <button className="btn" type="button" onClick={() => void setStatus('completed_by_site')} disabled={!pen.profileId}>
+                <IconCheck />
+                Completed by site
+              </button>
+            ) : null}
+            {!pen.profileId ? <span className="small muted">Allocate a fire profile before completing.</span> : null}
+            {pen.status === 'completed_by_site' && settings.role !== 'site' ? (
+              <>
+                <button className="btn btn--ok" type="button" onClick={() => void setStatus('reviewed_approved')}>
+                  <IconCheck />
+                  Reviewed & approved
+                </button>
+                <textarea value={defectNote} onChange={(e) => setDefectNote(e.target.value)} placeholder="What is wrong, and what is required" />
+                <button className="btn btn--danger" type="button" disabled={!defectNote.trim()} onClick={() => void setStatus('defected')}>
+                  <IconWarn />
+                  Defect
+                </button>
+              </>
+            ) : null}
+            {pen.status === 'completed_by_site' && settings.role === 'site' ? <span className="small muted">Awaiting QA review.</span> : null}
+            {pen.status === 'defected' ? (
+              <div className="banner banner--warn">
+                <IconWarn />
+                <div>
+                  Defected {pen.reviewedAt ? formatDateTime(pen.reviewedAt) : ''} by {pen.reviewedBy || 'QA'}: {pen.defect}
+                </div>
+              </div>
+            ) : null}
+            {pen.status === 'reviewed_approved' ? (
+              <span className="small muted">
+                Approved {pen.reviewedAt ? formatDateTime(pen.reviewedAt) : ''} by {pen.reviewedBy}. Installed {pen.installedAt ? formatDateTime(pen.installedAt) : ''} by {pen.installedBy}.
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="row">
+          <span className="spacer" />
+          <ConfirmButton
+            label={
+              <>
+                <IconTrash />
+                Delete penetration
+              </>
+            }
+            confirmLabel="Delete for good"
+            onConfirm={async () => {
+              await deletePenetration(pen.id)
+              onClose()
+            }}
+          />
+        </div>
+      </div>
+      {viewing ? <PhotoViewer photo={viewing} onClose={() => setViewing(null)} onChanged={() => undefined} onDeleted={() => setViewing(null)} /> : null}
+      {pickingProfile ? (
+        <ProfilePicker
+          initialElement={pen.kind === 'wall' ? 'wall2' : 'slab2'}
+          sizeMm={pen.sizeMm}
+          onClose={() => setPickingProfile(false)}
+          onPick={async (id) => {
+            await patch({ profileId: id })
+            setPickingProfile(false)
+          }}
+        />
+      ) : null}
+    </Sheet>
+  )
+}
+
+/* ----------------------------------------------------------- profiles */
+
+function ProfilePicker({
+  initialElement,
+  sizeMm,
+  onClose,
+  onPick,
+}: {
+  initialElement: FireElement
+  sizeMm?: number
+  onClose: () => void
+  onPick: (id: string) => void
+}) {
+  const [element, setElement] = useState<FireElement | ''>(initialElement)
+  const [size, setSize] = useState<number | ''>(sizeMm && FIRE_SIZES.includes(sizeMm) ? sizeMm : '')
+  const [search, setSearch] = useState('')
+  const list = matchProfiles({ element: element || undefined, sizeMm: size || undefined, search })
+  return (
+    <Sheet title="Passive fire rating schedule" onClose={onClose}>
+      <div className="stack">
+        <div className="field-grid">
+          <Field label="Building element">
+            <select value={element} onChange={(e) => setElement(e.target.value as FireElement | '')}>
+              <option value="">Any</option>
+              {(Object.keys(FIRE_ELEMENTS) as FireElement[]).map((k) => (
+                <option key={k} value={k}>
+                  {FIRE_ELEMENTS[k]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Size">
+            <select value={size} onChange={(e) => setSize(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">Any</option>
+              {FIRE_SIZES.map((s) => (
+                <option key={s} value={s}>
+                  {s} mm
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="PVC, HDPE, high top, floor waste…" />
+        <div className="card card__body--flush" style={{ maxHeight: '50vh', overflow: 'auto' }}>
+          {list.length === 0 ? (
+            <Empty title="No profile matches" hint="Widen the element or size." />
+          ) : (
+            list.map((p) => (
+              <button key={p.id} className="listitem" type="button" onClick={() => onPick(p.id)}>
+                <span className="listitem__num" style={{ fontSize: 11 }}>
+                  {p.no}
+                </span>
+                <span className="listitem__main">
+                  <strong>{p.id}</strong>
+                  <span>
+                    {p.usage} · {p.supplier} {p.product}
+                  </span>
+                  <span className="small muted">
+                    {p.treatment} · {p.productFrl}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+        <span className="small muted">{list.length} of the schedule's profiles shown.</span>
+      </div>
+    </Sheet>
+  )
+}
+
+/* ------------------------------------------------------------- import */
+
+const HEADER_HINTS: Record<string, RegExp> = {
+  number: /^(pen(etration)?\s*(no|number|id|#)?|number|id|tag|call\s*out)$/i,
+  size: /size|dia|diameter|dn/i,
+  level: /^level|^lvl|^floor$|^storey/i,
+  zone: /zone|grid/i,
+  ref: /ref|fixture|type|system|service/i,
+  material: /material|pipe/i,
+  frl: /frl|fire\s*rating|rating/i,
+  element: /element|wall\s*\/?\s*floor|building|substrate|construction/i,
+}
+
+/** Which column holds which field, from the header row. */
+function detectColumns(header: string[]): Record<string, number> {
+  const map: Record<string, number> = {}
+  header.forEach((h, i) => {
+    const t = h.trim()
+    if (!t) return
+    for (const [field, re] of Object.entries(HEADER_HINTS)) {
+      if (map[field] === undefined && re.test(t)) {
+        map[field] = i
+        break
+      }
+    }
+  })
+  return map
+}
+
+function ImportSheet({ projectId, onClose, onToast }: { projectId: string; onClose: () => void; onToast: (m: string) => void }) {
+  const [sheets, setSheets] = useState<RegisterSheet[]>([])
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<{ sheet: string; kind: 'floor' | 'wall'; rows: Omit<Parameters<typeof importPenetrations>[1][number], 'projectId'>[]; skipped: number }[]>([])
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    setError('')
+    setBusy(true)
+    try {
+      const read = await readRegisterFile(file)
+      setSheets(read)
+      const out: typeof preview = []
+      for (const sheet of read) {
+        const headerIdx = sheet.rows.findIndex((r) => detectColumns(r).number !== undefined)
+        if (headerIdx < 0) continue
+        const cols = detectColumns(sheet.rows[headerIdx])
+        const kind: 'floor' | 'wall' = /wall/i.test(sheet.name) ? 'wall' : /floor|slab/i.test(sheet.name) ? 'floor' : 'floor'
+        const rows: typeof preview[number]['rows'] = []
+        let skipped = 0
+        for (const r of sheet.rows.slice(headerIdx + 1)) {
+          const number = (r[cols.number] ?? '').trim()
+          if (!number) {
+            skipped++
+            continue
+          }
+          const size = (cols.size !== undefined ? r[cols.size] : '') ?? ''
+          rows.push({
+            number: tagKey(number) === number.toUpperCase() ? number.toUpperCase() : number.trim(),
+            kind: /^W/i.test(number) && !/^F/i.test(number) ? 'wall' : /^F/i.test(number) ? 'floor' : kind,
+            size: /mm/i.test(size) ? size : size ? `${size}mm` : '',
+            sizeMm: parseInt(size, 10) || undefined,
+            level: cols.level !== undefined ? r[cols.level] : undefined,
+            zone: cols.zone !== undefined ? r[cols.zone] : undefined,
+            ref: cols.ref !== undefined ? (r[cols.ref] ?? '').toUpperCase() : '',
+            material: cols.material !== undefined ? r[cols.material] ?? '' : '',
+            frl: cols.frl !== undefined ? r[cols.frl] ?? '' : '',
+            elementMaterial: cols.element !== undefined ? r[cols.element] ?? '' : '',
+          })
+        }
+        out.push({ sheet: sheet.name, kind, rows, skipped })
+      }
+      setPreview(out)
+      if (out.length === 0) setError('No sheet with a penetration number column was found. The header needs a column such as "Penetration No".')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that file.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const commit = async () => {
+    setBusy(true)
+    try {
+      let added = 0
+      let updated = 0
+      for (const p of preview) {
+        const r = await importPenetrations(projectId, p.rows)
+        added += r.added
+        updated += r.updated
+      }
+      onToast(`${added} penetrations added, ${updated} updated`)
+      onClose()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const total = preview.reduce((n, p) => n + p.rows.length, 0)
+
+  return (
+    <Sheet title="Import Autopin register" onClose={onClose}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>
+          The consultants' Excel register, as set out in the Firedoc requirements: one row per fire-rated penetration with the
+          unique number, size, level or zone, reference, material, FRL and building element. Wall and floor tabs are read
+          separately. Numbers already on the register are updated, never duplicated.
+        </p>
+        <input type="file" accept=".xlsx,.csv" onChange={(e) => void pick(e.target.files?.[0])} disabled={busy} />
+        {error ? <div className="banner banner--warn">{error}</div> : null}
+        {preview.map((p) => (
+          <div key={p.sheet} className="card">
+            <div className="card__body">
+              <strong className="small">{p.sheet}</strong>
+              <div className="small muted">
+                {p.rows.length} penetrations ({p.kind}) · {p.skipped} blank rows skipped
+              </div>
+              {p.rows.slice(0, 3).map((r) => (
+                <div key={r.number} className="small mono" style={{ marginTop: 4 }}>
+                  {r.number} · {r.size} {r.ref} · {r.material} · {r.frl} · {r.elementMaterial}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+        {sheets.length > 0 && preview.length === 0 ? <span className="small muted">Sheets read: {sheets.map((s) => s.name).join(', ')}</span> : null}
+        <div className="row row--end">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn" type="button" disabled={!total || busy} onClick={() => void commit()}>
+            Import {total || ''} penetrations
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  )
+}
+
+/* ---------------------------------------------------------------- add */
+
+function AddSheet({ projectId, onClose, onAdded }: { projectId: string; onClose: () => void; onAdded: (id: string) => void }) {
+  const [form, setForm] = useState({ number: '', kind: 'floor' as 'floor' | 'wall', size: '100mm', ref: 'FW', material: 'PVC', frl: '120/120/120', elementMaterial: '', level: '' })
+  return (
+    <Sheet title="Add penetration" onClose={onClose}>
+      <div className="stack">
+        <div className="field-grid">
+          <Field label="Penetration number" hint="Must match the call-out tag on the plan exactly.">
+            <input type="text" autoFocus value={form.number} onChange={(e) => setForm({ ...form, number: e.target.value.toUpperCase() })} placeholder="F0001" />
+          </Field>
+          <Field label="Floor or wall">
+            <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as 'floor' | 'wall' })}>
+              <option value="floor">Floor</option>
+              <option value="wall">Wall</option>
+            </select>
+          </Field>
+        </div>
+        <div className="field-grid">
+          <Field label="Size">
+            <input type="text" value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })} />
+          </Field>
+          <Field label="Reference">
+            <input type="text" value={form.ref} onChange={(e) => setForm({ ...form, ref: e.target.value.toUpperCase() })} />
+          </Field>
+        </div>
+        <div className="field-grid">
+          <Field label="Material">
+            <input type="text" value={form.material} onChange={(e) => setForm({ ...form, material: e.target.value })} />
+          </Field>
+          <Field label="FRL">
+            <input type="text" value={form.frl} onChange={(e) => setForm({ ...form, frl: e.target.value })} />
+          </Field>
+        </div>
+        <div className="field-grid">
+          <Field label="Building element">
+            <input type="text" value={form.elementMaterial} onChange={(e) => setForm({ ...form, elementMaterial: e.target.value })} />
+          </Field>
+          <Field label="Level">
+            <input type="text" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} />
+          </Field>
+        </div>
+        <div className="row row--end">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn"
+            type="button"
+            disabled={!form.number.trim()}
+            onClick={async () => {
+              const p = await createPenetration({ projectId, ...form, sizeMm: parseInt(form.size, 10) || undefined })
+              onAdded(p.id)
+            }}
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </Sheet>
+  )
+}

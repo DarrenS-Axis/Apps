@@ -1,0 +1,22 @@
+import type { BusinessUnit, StateCode } from '../types'
+
+/**
+ * The business units seeded on first run, taken from the "BUSINESS UNIT
+ * (STATE/OFFICE)" column of the September 2024 QA reports plus the offices on
+ * the Axis letterhead. They are ordinary records once created — rename, add
+ * or retire them in Settings — and only the ids here are fixed so a project
+ * imported from another device lands in the same unit.
+ */
+export const SEED_BUSINESS_UNITS: Omit<BusinessUnit, 'createdAt' | 'updatedAt'>[] = [
+  { id: 'bu_nsw_major', state: 'NSW', name: 'NSW Major Works', entity: 'Axis Plumbing NSW', office: 'Sydney' },
+  { id: 'bu_nsw_small', state: 'NSW', name: 'NSW Small Works', entity: 'Axis Plumbing NSW', office: 'Sydney' },
+  { id: 'bu_nsw_medgas', state: 'NSW', name: 'NSW Med Gas', entity: 'Axis Plumbing NSW', office: 'Sydney' },
+  { id: 'bu_act', state: 'ACT', name: 'ACT', entity: 'Axis Plumbing NSW', office: 'Canberra' },
+  { id: 'bu_qld', state: 'QLD', name: 'QLD', entity: 'Axis Plumbing QLD', office: 'Brisbane' },
+  { id: 'bu_vic', state: 'VIC', name: 'VIC', entity: 'Axis Plumbing VIC', office: 'Melbourne' },
+  { id: 'bu_nt', state: 'NT', name: 'NT', entity: 'Axis Plumbing NT', office: 'Darwin' },
+  { id: 'bu_wa', state: 'WA', name: 'WA', entity: 'Axis Plumbing WA', office: 'Perth' },
+]
+
+export const unitsForState = (units: BusinessUnit[], state?: StateCode): BusinessUnit[] =>
+  state ? units.filter((u) => u.state === state) : units

@@ -8,6 +8,7 @@
 // Point ITP_CLIENT_LOGO at the head contractor's official logo file to use it;
 // without one a plain typographic wordmark stands in.
 import { chromium } from 'playwright'
+import { createProject, onboard, tab } from '../tests/helpers.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -36,11 +37,11 @@ const ME = { name: 'Darren Shoobridge', initials: 'DS', role: 'Hydraulic Supervi
 
 const SPECS = [
   {
-    code: '015',
-    file: 'ITP-015-Sanitary-Plumbing.pdf',
+    code: '016',
+    file: 'ITP-016-Sanitary-Plumbing.pdf',
     area: 'Level 3 — Amenities and Riser',
     location: 'Level 3, Grid 4-7',
-    documentNo: 'HYD-ITP-015-L3',
+    documentNo: 'HYD-ITP-016-L3',
     materials: [
       'DWV PVC-U 100/65/50, WM-020458',
       'Solvent cement type P, Batch 24-0917',
@@ -55,11 +56,11 @@ const SPECS = [
     pin: 'Stack SS-01 at grid 5, connection to Level 2 below',
   },
   {
-    code: '022',
-    file: 'ITP-022-Potable-Cold-Water.pdf',
+    code: '023',
+    file: 'ITP-023-Potable-Cold-Water.pdf',
     area: 'Level 3 — Cold Water Reticulation',
     location: 'Level 3, Grid 1-7',
-    documentNo: 'HYD-ITP-022-L3',
+    documentNo: 'HYD-ITP-023-L3',
     materials: [
       'Press copper Type B 40mm, WM-020017',
       'Press fittings, WM-020017',
@@ -74,11 +75,11 @@ const SPECS = [
     pin: 'CW riser take-off, isolation valve CW-V03',
   },
   {
-    code: '024',
-    file: 'ITP-024-Hot-Water-Service.pdf',
+    code: '025',
+    file: 'ITP-025-Hot-Water-Service.pdf',
     area: 'Roof Plant Room — HWU-01 and HWU-02',
     location: 'Roof level, Grid 6-8',
-    documentNo: 'HYD-ITP-024-RPR',
+    documentNo: 'HYD-ITP-025-RPR',
     materials: [
       'Press copper Type B 50/40, WM-020017',
       'Tempering valves 50°C, WM-022640',
@@ -93,11 +94,11 @@ const SPECS = [
     pin: 'HWU-01 flow and return connections',
   },
   {
-    code: '029',
-    file: 'ITP-029-Sanitary-Fixtures-and-Tapware.pdf',
+    code: '030',
+    file: 'ITP-030-Sanitary-Fixtures-and-Tapware.pdf',
     area: 'Level 3 — Male and Female Amenities',
     location: 'Level 3, Grid 4-6',
-    documentNo: 'HYD-ITP-029-L3',
+    documentNo: 'HYD-ITP-030-L3',
     materials: [
       'WC pans 4 star, WM-024417',
       'Basin mixers 5 star, WM-024988',
@@ -233,15 +234,8 @@ async function dragOnPlan(points) {
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
 await pause(600)
 
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill(JOB.name)
-await page.locator('label:has(span:text("Job number")) input').fill(JOB.number)
-await page.getByPlaceholder('e.g. MINUS 1', { exact: true }).fill(JOB.stage)
-await page.locator('label:has(span:text("Client / head contractor")) input').fill(JOB.client)
-await page.getByPlaceholder('Printed top-left on the ITP').fill(JOB.contractor)
-await page.locator('label:has(span:text("Approved for use by")) input').fill(JOB.approvedBy)
-await page.locator('label:has(span:text("Site address")) input').fill(JOB.address)
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: JOB.name, projectNumber: JOB.number, client: JOB.client, approvedBy: JOB.approvedBy, address: JOB.address })
 await pause(800)
 
 // Head contractor logo and the document marking.
@@ -255,10 +249,10 @@ await page.getByRole('button', { name: 'Save' }).last().click()
 await pause(700)
 
 // Who is signing.
-await page.getByRole('link', { name: 'Settings' }).click()
+await page.getByRole('link', { name: 'Settings', exact: true }).click()
 await pause(400)
-await page.getByPlaceholder('e.g. Brett Patman').fill(ME.name)
-await page.getByPlaceholder('e.g. BP').fill(ME.initials)
+await page.getByPlaceholder('e.g. Murtaza Bahloli').fill(ME.name)
+await page.getByPlaceholder('e.g. MB').fill(ME.initials)
 await page.locator('label:has(span:text("Role")) input').fill(ME.role)
 await page.locator('label:has(span:text("Company")) input').fill(ME.company)
 await pause(400)
@@ -266,7 +260,7 @@ await sign(page.locator('.sigpad canvas').first())
 await pause(500)
 
 // One drawing, marked up per ITP.
-await page.getByRole('link', { name: 'Plans' }).click()
+await tab(page, 'Plans').click()
 await pause(400)
 await page.getByRole('button', { name: 'Add drawing' }).click()
 await page.getByPlaceholder('e.g. HC-001').fill('HC-201')
@@ -281,10 +275,10 @@ await pause(800)
 
 async function buildItp(spec) {
   console.log(`\n--- ITP ${spec.code}`)
-  await page.getByRole('link', { name: 'ITPs' }).click()
+  await tab(page, 'Controldoc').click()
   await pause(500)
   await page.getByRole('button', { name: /ITP register/ }).click()
-  await page.getByPlaceholder(/Search the 42/).fill(spec.code)
+  await page.getByPlaceholder(/Search the \d+/).fill(spec.code)
   await pause(400)
   await page
     .locator('.listitem')

@@ -1,7 +1,7 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { db, loadSettings } from './db'
-import type { Drawing, Itp, Photo, Project, Settings } from './types'
+import type { BusinessUnit, Defect, Drawing, Itp, Penetration, Photo, Project, Settings, StateCode } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 /**
@@ -33,9 +33,87 @@ const EMPTY_PROJECTS: Project[] = []
 const EMPTY_DRAWINGS: Drawing[] = []
 const EMPTY_ITPS: Itp[] = []
 const EMPTY_PHOTOS: Photo[] = []
+const EMPTY_UNITS: BusinessUnit[] = []
+const EMPTY_PENS: Penetration[] = []
+const EMPTY_DEFECTS: Defect[] = []
 
+export function useBusinessUnits(state?: StateCode): BusinessUnit[] {
+  return useLive(
+    async () => {
+      const all = await db.businessUnits.toArray()
+      return (state ? all.filter((u) => u.state === state) : all).sort((a, b) => a.name.localeCompare(b.name))
+    },
+    [state],
+    EMPTY_UNITS,
+  )
+}
+
+export function useBusinessUnit(id?: string): BusinessUnit | undefined {
+  return useLive(() => (id ? db.businessUnits.get(id) : undefined), [id], undefined)
+}
+
+/**
+ * Every project, unscoped. The screens use `useVisibleProjects`, which applies
+ * the signed-in person's state; this exists for reporting and migration.
+ */
 export function useProjects(): Project[] {
   return useLive(() => db.projects.orderBy('updatedAt').reverse().toArray(), [], EMPTY_PROJECTS)
+}
+
+/**
+ * Projects the signed-in person may open. Site and state QA see their own
+ * state only — the one silo the app enforces on the device; national QA sees
+ * the lot. Nothing is shown until a state has been chosen.
+ */
+export function useVisibleProjects(): Project[] {
+  const settings = useSettings()
+  const { role, state, businessUnitIds } = settings
+  return useLive(
+    async () => {
+      const all = await db.projects.orderBy('updatedAt').reverse().toArray()
+      if (role === 'national_qa') return all
+      if (!state) return []
+      return all.filter(
+        (p) => p.state === state && (businessUnitIds.length === 0 || businessUnitIds.includes(p.businessUnitId)),
+      )
+    },
+    [role, state, businessUnitIds.join(',')],
+    EMPTY_PROJECTS,
+  )
+}
+
+export function usePenetrations(projectId?: string): Penetration[] {
+  return useLive(
+    () => (projectId ? db.penetrations.where('projectId').equals(projectId).sortBy('number') : []),
+    [projectId],
+    EMPTY_PENS,
+  )
+}
+
+export function usePenetration(id?: string): Penetration | undefined {
+  return useLive(() => (id ? db.penetrations.get(id) : undefined), [id], undefined)
+}
+
+export function useDefects(projectId?: string): Defect[] {
+  return useLive(
+    () => (projectId ? db.defects.where('projectId').equals(projectId).sortBy('number') : []),
+    [projectId],
+    EMPTY_DEFECTS,
+  )
+}
+
+export function useDefect(id?: string): Defect | undefined {
+  return useLive(() => (id ? db.defects.get(id) : undefined), [id], undefined)
+}
+
+/** Photos taken at a penetration or a defect. */
+export function useRecordPhotos(key: 'penetrationId' | 'defectId', id?: string): Photo[] {
+  return useLive(() => (id ? db.photos.where(key).equals(id).sortBy('takenAt') : []), [key, id], EMPTY_PHOTOS)
+}
+
+/** How many changes are waiting to reach SharePoint. */
+export function useOutboxCount(): number {
+  return useLive(() => db.outbox.count(), [], 0)
 }
 
 export function useProject(id?: string): Project | undefined {
@@ -76,6 +154,18 @@ export function usePhotos(itpId?: string): Photo[] {
 
 export function useSettings(): Settings {
   return useLive(() => loadSettings(), [], DEFAULT_SETTINGS)
+}
+
+const NOT_LOADED: { settings: Settings; loaded: boolean } = { settings: DEFAULT_SETTINGS, loaded: false }
+
+/**
+ * Settings together with whether they have been read from the device yet. A
+ * fresh install and a not-yet-loaded store both look like DEFAULT_SETTINGS,
+ * and the app must not route on the second — so the flag and the value come
+ * from the one query and can never disagree.
+ */
+export function useSettingsState(): { settings: Settings; loaded: boolean } {
+  return useLive(async () => ({ settings: await loadSettings(), loaded: true }), [], NOT_LOADED)
 }
 
 /** Photos grouped by the schedule item they evidence. */

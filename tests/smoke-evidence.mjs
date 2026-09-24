@@ -1,5 +1,6 @@
 // End-to-end check of the evidence path: drawing → pin → photo → PDF.
 import { chromium } from 'playwright'
+import { createProject, onboard, openPhotos, tab } from './helpers.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -42,22 +43,19 @@ await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
 await page.waitForTimeout(500)
 
 // Job
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Minus 1 — Adelaide')
-await page.locator('label:has(span:text("Your company")) input').fill('Axis Services SA')
-await page.locator('label:has(span:text("Approved for use by")) input').fill('Darren Shoobridge')
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: 'Minus 1 — Adelaide', approvedBy: 'Darren Shoobridge' })
 await page.waitForTimeout(600)
 
 // Identity
-await page.getByRole('link', { name: 'Settings' }).click()
+await page.getByRole('link', { name: 'Settings', exact: true }).click()
 await page.waitForTimeout(300)
-await page.getByPlaceholder('e.g. Brett Patman').fill('Brett Patman')
-await page.getByPlaceholder('e.g. BP').fill('BP')
+await page.getByPlaceholder('e.g. Murtaza Bahloli').fill('Brett Patman')
+await page.getByPlaceholder('e.g. MB').fill('BP')
 await page.waitForTimeout(300)
 
 // Drawing with a plan image
-await page.getByRole('link', { name: 'Plans' }).click()
+await tab(page, 'Plans').click()
 await page.waitForTimeout(300)
 await page.getByRole('button', { name: 'Add drawing' }).click()
 await page.getByPlaceholder('e.g. HC-001').fill('HC-001')
@@ -71,10 +69,10 @@ await page.waitForTimeout(700)
 await shot('02-drawings')
 
 // Raise an ITP with the drawing linked
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(400)
 await page.getByRole('button', { name: /ITP register/ }).click()
-await page.getByPlaceholder(/Search the 42/).fill('Inground Sanitary')
+await page.getByPlaceholder(/Search the \d+/).fill('Inground Sanitary')
 await page.waitForTimeout(300)
 await page.locator('.listitem').first().click()
 await page.waitForTimeout(400)
@@ -156,7 +154,7 @@ await download.saveAs(path.join(OUT, 'export.pdf'))
 console.log('pdf bytes:', fs.statSync(path.join(OUT, 'export.pdf')).size)
 
 // Photos tab
-await page.getByRole('link', { name: 'Photos' }).click()
+await openPhotos(page)
 await page.waitForTimeout(700)
 await shot('09-photos')
 

@@ -26,8 +26,15 @@ console or page error along the way.
   pinch with the fingers released *outside* the viewer, then drag again — repeated over
   several cycles and with one finger lifted before the other. Also flings the plan at zoom
   and asserts it stays on screen, painted, and draggable back.
+- `smoke-sharepoint.mjs` — the Microsoft 365 path, against `mock-graph.mjs` (a stand-in for
+  the slice of Graph the sync layer uses): provision the eight lists, write records on one
+  device and push them, pull them onto a fresh NSW device, confirm a QLD device receives
+  none of them and national QA receives all of them and reports on them.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
+
+Every suite starts through `helpers.mjs`: the welcome screen (name and state) and a
+project under the first business unit, then the project-scoped tabs.
 
 ## Running them
 

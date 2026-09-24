@@ -201,7 +201,11 @@ export function currentPosition(timeout = 8000): Promise<GeolocationPosition | n
 }
 
 export interface CapturePhotoOptions {
-  itpId: string
+  /** The ITP this photo evidences; empty for Firedoc and Reviewdoc photos. */
+  itpId?: string
+  penetrationId?: string
+  defectId?: string
+  projectId?: string
   itemNo?: string
   /** Plan pin this photo is being taken at, if any. */
   pinId?: string
@@ -255,7 +259,10 @@ export async function capturePhoto(file: Blob, opts: CapturePhotoOptions): Promi
 
   return {
     id: uid('pho'),
-    itpId: opts.itpId,
+    itpId: opts.itpId ?? '',
+    penetrationId: opts.penetrationId,
+    defectId: opts.defectId,
+    projectId: opts.projectId,
     itemNo: opts.itemNo,
     pinId: opts.pinId,
     category: opts.category,

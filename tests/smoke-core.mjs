@@ -1,4 +1,5 @@
 import { chromium } from 'playwright'
+import { createProject, onboard, openPhotos, tab } from './helpers.mjs'
 import fs from 'node:fs'
 
 const OUT = '/tmp/itp-shots-core'
@@ -20,30 +21,24 @@ await page.waitForTimeout(600)
 await shot('01-projects')
 
 // Create a job
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Minus 1 — Adelaide')
-await page.locator('label:has(span:text("Job number")) input').fill('HYD-2026-014')
-await page.locator('label:has(span:text("Stage / level")) input').fill('MINUS 1')
-await page.locator('label:has(span:text("Client / head contractor")) input').fill('Space Frame')
-await page.locator('label:has(span:text("Your company")) input').fill('Axis Services SA')
-await page.locator('label:has(span:text("Approved for use by")) input').fill('Darren Shoobridge')
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: 'Minus 1 — Adelaide', projectNumber: 'HYD-2026-014', client: 'Space Frame', approvedBy: 'Darren Shoobridge' })
 await page.waitForTimeout(700)
 await shot('02-job')
 
 // --- Getting back to the list of jobs. With one job there is no switcher in
 //     the header, so this link is the only way back to it.
-const backToJobs = page.getByRole('link', { name: 'All jobs' })
+const backToJobs = page.getByRole('link', { name: 'All projects' })
 if (!(await backToJobs.count())) errors.push('No link back to the jobs list from inside a job')
 else {
   await backToJobs.click()
   await page.waitForTimeout(600)
-  if (!page.url().includes('/projects')) errors.push(`"All jobs" did not open the jobs list (${page.url()})`)
+  if (!page.url().includes('/state')) errors.push(`"All jobs" did not open the jobs list (${page.url()})`)
   const jobsListed = await page.locator('.listitem').count()
   console.log('jobs listed on the home page:', jobsListed)
   if (jobsListed < 1) errors.push('The jobs list showed no jobs')
   // It is the page you are already on, so it should not offer itself.
-  if (await page.getByRole('link', { name: 'All jobs' }).count()) {
+  if (await page.getByRole('link', { name: 'All projects' }).count()) {
     errors.push('The "All jobs" link is still shown on the jobs list itself')
   }
   await page.locator('.listitem').first().click()
@@ -51,15 +46,15 @@ else {
 }
 
 // Settings: identity
-await page.getByRole('link', { name: 'Settings' }).click()
+await page.getByRole('link', { name: 'Settings', exact: true }).click()
 await page.waitForTimeout(400)
-await page.getByPlaceholder('e.g. Brett Patman').fill('Brett Patman')
-await page.getByPlaceholder('e.g. BP').fill('BP')
+await page.getByPlaceholder('e.g. Murtaza Bahloli').fill('Brett Patman')
+await page.getByPlaceholder('e.g. MB').fill('BP')
 await page.waitForTimeout(400)
 await shot('03-settings')
 
 // ITP register
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(500)
 await page.getByRole('button', { name: /ITP register/ }).click()
 await page.waitForTimeout(400)
@@ -69,7 +64,7 @@ const count = await page.locator('.listitem').count()
 console.log('register rows:', count)
 
 // Raise ITP 002
-await page.getByPlaceholder(/Search the 42/).fill('Tradewaste')
+await page.getByPlaceholder(/Search the \d+/).fill('Tradewaste')
 await page.waitForTimeout(300)
 await shot('05-search')
 await page.locator('.listitem', { hasText: 'Inground Tradewaste Drainage' }).first().click()

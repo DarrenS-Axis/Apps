@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "triggers": {
+    "manual": {
+      "type": "Request",
+      "kind": "Http",
+      "inputs": {
+        "method": "POST",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "event": { "type": "string" },
+            "at": { "type": "string" },
+            "actor": { "type": "string" },
+            "state": { "type": "string" },
+            "businessUnit": { "type": "string" },
+            "project": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "number": { "type": "string" },
+                "client": { "type": "string" }
+              }
+            },
+            "record": { "type": "object" },
+            "summary": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "actions": {
+    "Switch_on_state": {
+      "type": "Switch",
+      "expression": "@triggerBody()?['state']",
+      "cases": {
+        "NSW": {
+          "case": "NSW",
+          "actions": {
+            "Post_to_NSW_QA_channel": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                "method": "post",
+                "path": "/beta/teams/conversation/message/poster/Flow bot/location/@{encodeURIComponent('Channel')}",
+                "body": {
+                  "recipient": { "groupId": "<NSW team id>", "channelId": "<NSW QA channel id>" },
+                  "messageBody": "<p><b>@{triggerBody()?['summary']}</b><br/>@{triggerBody()?['project']?['name']} · @{triggerBody()?['businessUnit']}<br/>by @{triggerBody()?['actor']} at @{triggerBody()?['at']}</p>"
+                }
+              }
+            }
+          }
+        }
+      },
+      "default": { "actions": {} },
+      "runAfter": {}
+    },
+    "Response": {
+      "type": "Response",
+      "kind": "Http",
+      "inputs": { "statusCode": 200 },
+      "runAfter": { "Switch_on_state": ["Succeeded", "Failed", "Skipped"] }
+    }
+  },
+  "outputs": {}
+}

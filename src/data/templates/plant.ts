@@ -42,7 +42,7 @@ const plantCore = (equipment: string) => [
 const electricalInterface = (): {
   installation: string
   acceptance: string
-  point: 'S'
+  point: 'M'
   releasedBy: string
   photoHint: string
 } => ({
@@ -50,7 +50,7 @@ const electricalInterface = (): {
     'Confirm electrical supply, isolation, controls and BMS interface have been installed and terminated by the electrical contractor, and that the equipment has been energised safely.',
   acceptance:
     'In accordance with AS/NZS 3000, the electrical drawings and the equipment manufacturer’s requirements. Electrical certificate of compliance provided.',
-  point: 'S',
+  point: 'M',
   releasedBy: 'Electrical contractor / Superintendent',
   photoHint: 'Isolator, control panel and terminations',
 })
@@ -63,9 +63,9 @@ const vibrationNoise = () => ({
 })
 
 export const plantTemplates: ItpTemplate[] = [
-  /* ------------------------------------------------------------------ 030 */
+  /* ------------------------------------------------------------------ 031 */
   mk({
-    code: '030',
+    code: '031',
     title: 'Sewer Pumps and Holding Well',
     group: G,
     scope:
@@ -136,9 +136,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 031 */
+  /* ------------------------------------------------------------------ 032 */
   mk({
-    code: '031',
+    code: '032',
     title: 'Stormwater Pumps',
     group: G,
     scope:
@@ -197,9 +197,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 032 */
+  /* ------------------------------------------------------------------ 033 */
   mk({
-    code: '032',
+    code: '033',
     title: 'Fuel Oil Water Separator System',
     group: G,
     scope:
@@ -263,9 +263,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 033 */
+  /* ------------------------------------------------------------------ 034 */
   mk({
-    code: '033',
+    code: '034',
     title: 'Stormwater Filtration Device',
     group: G,
     scope:
@@ -313,9 +313,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 034 */
+  /* ------------------------------------------------------------------ 035 */
   mk({
-    code: '034',
+    code: '035',
     title: 'Rainwater Reuse System',
     group: G,
     scope:
@@ -379,9 +379,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 035 */
+  /* ------------------------------------------------------------------ 036 */
   mk({
-    code: '035',
+    code: '036',
     title: 'Potable Water Pumps',
     group: G,
     scope:
@@ -433,9 +433,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 036 */
+  /* ------------------------------------------------------------------ 037 */
   mk({
-    code: '036',
+    code: '037',
     title: 'Fire Hose Reel',
     group: G,
     scope: 'Fire hose reel installation — location, coverage, water supply, flow and pressure verification and signage.',
@@ -492,9 +492,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 037 */
+  /* ------------------------------------------------------------------ 038 */
   mk({
-    code: '037',
+    code: '038',
     title: 'Fire Hydrant Pumps and System',
     group: G,
     scope:
@@ -567,9 +567,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 038 */
+  /* ------------------------------------------------------------------ 039 */
   mk({
-    code: '038',
+    code: '039',
     title: 'Hot Water Plant',
     group: G,
     scope:
@@ -640,9 +640,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 039 */
+  /* ------------------------------------------------------------------ 040 */
   mk({
-    code: '039',
+    code: '040',
     title: 'Reverse Osmosis Plant',
     group: G,
     scope:
@@ -707,9 +707,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 040 */
+  /* ------------------------------------------------------------------ 041 */
   mk({
-    code: '040',
+    code: '041',
     title: 'Potable Cold Water Tank',
     group: G,
     scope:
@@ -784,9 +784,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 041 */
+  /* ------------------------------------------------------------------ 042 */
   mk({
-    code: '041',
+    code: '042',
     title: 'Fire System Water Tank',
     group: G,
     scope:
@@ -864,9 +864,9 @@ export const plantTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 042 */
+  /* ------------------------------------------------------------------ 043 */
   mk({
-    code: '042',
+    code: '043',
     title: 'Non Potable Water Tank',
     group: G,
     scope:

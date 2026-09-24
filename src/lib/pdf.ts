@@ -1,8 +1,10 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { Drawing, Itp, Photo, PlanRegion, Project } from '../data/types'
-import { PHOTO_CATEGORIES, REGION_COLOURS, REGION_STROKE_FRACTION } from '../data/types'
-import { formatDate, formatDateTime, itpProgress } from './format'
+import type { Defect, Drawing, Itp, Photo, PlanRegion, Project } from '../data/types'
+import { DEFECT_STATUS_LABEL, ITP_STATUS_LABEL, PHOTO_CATEGORIES, REGION_COLOURS, REGION_STROKE_FRACTION } from '../data/types'
+import { aud } from './reporting'
+import { deriveStatus, formatDate, formatDateTime, itpProgress } from './format'
+import { getTemplate } from '../data/templates'
 import { formatCoords, stampText } from './images'
 
 /**
@@ -203,7 +205,7 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
   doc.text('ITP NUMBER:', nx + 2, top + 4)
   doc.text('Revision No:', nx + 22, top + 4)
   doc.text('Revision Date:', nx + 22, top + 15)
-  doc.text('Document No.', nx + 2, top + 15)
+  doc.text(itp.itcNumber ? 'ITC #' : 'Document No.', nx + 2, top + 15)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
@@ -213,7 +215,11 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
   doc.setFontSize(7.5)
   doc.text(formatDate(itp.revisionDate), nx + 33, top + 17.5, { align: 'center' })
   doc.setFontSize(7)
-  doc.text(itp.documentNo || '—', nx + 10, top + 17.5, { align: 'center' })
+  doc.text(itp.itcNumber || itp.documentNo || '—', nx + 10, top + 17.5, { align: 'center' })
+  // Progress and status, as the Controldoc header prints them.
+  const progressPct = itpProgress(itp).percent
+  doc.setFontSize(6.5)
+  doc.text(`Progress ${progressPct}%  ·  ${ITP_STATUS_LABEL[deriveStatus(itp)]}`, nx + nw / 2, top + 23.5, { align: 'center' })
 
   // Green title panel, right, as on the paper form.
   const tx = nx + nw
@@ -257,8 +263,25 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
     y + 4,
     { maxWidth: PAGE.w - M - (areaX + areaLabelW) - 4 },
   )
+  y += 6
 
-  return y + 6
+  // Controldoc location and reference row.
+  if (itp.locationPath || itp.locRef || itp.planRef) {
+    doc.rect(M, y, PAGE.w - M * 2, 6)
+    doc.setFillColor(GREY[0], GREY[1], GREY[2])
+    doc.rect(M, y, dwgLabelW, 6, 'FD')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(6.8)
+    doc.text('Location / Loc.Ref', M + 1.5, y + 4)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7)
+    doc.text([itp.locationPath, itp.locRef, itp.planRef].filter(Boolean).join('   ·   '), M + dwgLabelW + 2, y + 4, {
+      maxWidth: PAGE.w - M * 2 - dwgLabelW - 4,
+    })
+    y += 6
+  }
+
+  return y
 }
 
 export async function exportItpPdf({ itp, project, drawings, photos }: ExportInput): Promise<Blob> {
@@ -362,6 +385,39 @@ export async function exportItpPdf({ itp, project, drawings, photos }: ExportInp
   /* --------------------------------------------------------- sign-off */
 
   const afterSchedule = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
+  // 3.0 TEST RECORD — the fixed form every Controldoc ITP carries.
+  {
+    const rec = itp.testRecord
+    const tpl = getTemplate(itp.templateCode)
+    const yn = (v: boolean | null | undefined) => (v === true ? 'Yes' : v === false ? 'No' : '')
+    const rows: [string, string][] = [
+      ['Australian Standard minimum test criteria', [tpl?.test.standard, tpl?.test.pressureKpa ? `${tpl.test.pressureKpa} kPa` : '', tpl?.test.minutes ? `${tpl.test.minutes} minutes` : ''].filter(Boolean).join(' · ')],
+      ['Service', rec?.service ?? itp.title],
+      ['Test type', rec?.testType ?? tpl?.test.type ?? ''],
+      ['Date of test', formatDate(rec?.dateOfTest) || ''],
+      ['Final test — time started / ended', [rec?.testStarted, rec?.testEnded].filter(Boolean).join(' – ')],
+      ['Pressure at start (kPa)', rec?.pressureAtStart ?? ''],
+      ['Pressure loss (kPa) or loss at end (ml)', rec?.loss ?? ''],
+      ['Test equipment', rec?.equipment ?? ''],
+      ['Total loss (kPa) or make-up water (ml)', rec?.totalLoss ?? ''],
+      ['Test pass', yn(rec?.pass)],
+      ['ITP compliance check complete', yn(rec?.complianceCheck)],
+      ['Additional notes', rec?.notes ?? ''],
+    ]
+    if (tpl?.test.preTest) {
+      rows.splice(4, 0, [`${tpl.test.preTest.label} — time started / ended`, [rec?.preTestStarted, rec?.preTestEnded].filter(Boolean).join(' – ')], [`${tpl.test.preTest.label} pressure (kPa)`, rec?.preTestPressure ?? ''])
+    }
+    autoTable(doc, {
+      startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 1,
+      margin: { left: M, right: M, bottom: 12 },
+      theme: 'grid',
+      styles: { fontSize: 6.6, cellPadding: 1.3, lineColor: [LINE[0], LINE[1], LINE[2]], lineWidth: 0.2, textColor: [INK[0], INK[1], INK[2]] },
+      headStyles: { fillColor: [HEAD_GREEN[0], HEAD_GREEN[1], HEAD_GREEN[2]], textColor: [INK[0], INK[1], INK[2]], fontStyle: 'bold', halign: 'center' },
+      head: [[{ content: 'TEST RECORD (3.0)', colSpan: 2 }]],
+      body: rows.map(([k, v], n) => [`Step ${n + 1}   ${k}`, v]),
+      columnStyles: { 0: { cellWidth: 78, fillColor: [GREY[0], GREY[1], GREY[2]] }, 1: { cellWidth: 'auto' } },
+    })
+  }
   drawSignOff(doc, itp, afterSchedule + 2)
 
   /* ------------------------------------------------- photographic record */
@@ -448,11 +504,11 @@ function drawSignOff(doc: jsPDF, itp: Itp, top: number): void {
   }
 
   const progress = itpProgress(itp)
-  block(M, 'INSTALLER SIGN-OFF', itp.signOff, [
+  block(M, 'AXIS SIGN-OFF', itp.signOff, [
     itp.signOff?.licence ? `Licence / CP no.:  ${itp.signOff.licence}` : 'Licence / CP no.:',
     `Date completed:  ${formatDate(itp.dateCompleted) || ''}`,
   ])
-  block(M + half, 'CLIENT / SUPERINTENDENT ACCEPTANCE', itp.clientSignOff, [
+  block(M + half, 'ADDITIONAL SIGN-OFF (CLIENT / SUPERINTENDENT)', itp.clientSignOff, [
     `Company:  ${itp.clientSignOff?.company ?? ''}`,
     `${progress.signed} of ${progress.applicable} applicable items signed${progress.failed ? ` · ${progress.failed} non-conforming` : ''}`,
   ])
@@ -787,5 +843,166 @@ export function exportRegisterPdf(project: Project, itps: Itp[]): Blob {
   })
 
   markings(doc, project)
+  return doc.output('blob')
+}
+
+/* ================================================================ Reviewdoc */
+
+/**
+ * A crop of the plan around one defect, with the pin drawn — the "Mini Map"
+ * column of the QA report, drawn at a size a phone can produce quickly.
+ */
+function miniMap(plan: Drawing, x: number, y: number, label: string): Promise<string> {
+  return new Promise((resolve) => {
+    if (!plan.imageData) return resolve('')
+    const img = new Image()
+    img.onload = () => {
+      const size = Math.round(Math.max(img.naturalWidth, img.naturalHeight) * 0.18)
+      const sx = Math.max(0, Math.min(img.naturalWidth - size, x * img.naturalWidth - size / 2))
+      const sy = Math.max(0, Math.min(img.naturalHeight - size, y * img.naturalHeight - size / 2))
+      const canvas = document.createElement('canvas')
+      const out = 360
+      canvas.width = out
+      canvas.height = out
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return resolve('')
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, out, out)
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, out, out)
+      const px = ((x * img.naturalWidth - sx) / size) * out
+      const py = ((y * img.naturalHeight - sy) / size) * out
+      ctx.beginPath()
+      ctx.arc(px, py, 16, 0, Math.PI * 2)
+      ctx.fillStyle = '#c2410c'
+      ctx.fill()
+      ctx.lineWidth = 3
+      ctx.strokeStyle = '#fff'
+      ctx.stroke()
+      ctx.fillStyle = '#fff'
+      ctx.font = '700 15px system-ui, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(label, px, py + 1)
+      resolve(canvas.toDataURL('image/jpeg', 0.8))
+    }
+    img.onerror = () => resolve('')
+    img.src = plan.imageData!
+  })
+}
+
+export interface QaReportInput {
+  project: Project
+  unit?: { name: string; entity: string; office?: string; phone?: string }
+  defects: Defect[]
+  drawings: Drawing[]
+  photos: Photo[]
+  /** Who the report goes to — the head contractor. */
+  to?: string
+}
+
+/**
+ * The Reviewdoc QA REPORT sent to the head contractor: a cover page, then
+ * one row per defect with its location, mini map, description, cost and
+ * photo, the way the Controldoc export lays it out.
+ */
+export async function exportQaReportPdf({ project, unit, defects, drawings, photos, to }: QaReportInput): Promise<Blob> {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
+  doc.setTextColor(INK[0], INK[1], INK[2])
+
+  // Cover.
+  let y = 30
+  if (project.contractorLogo) drawLogo(doc, project.contractorLogo, M, y - 12, 50, 18, 'left')
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(22)
+  doc.text('QA REPORT', PAGE.w - M, y, { align: 'right' })
+  y += 16
+  doc.setFontSize(10)
+  const lines: [string, string][] = [
+    ['To:', to || project.client || '—'],
+    ['Project:', project.name],
+    ['Address:', project.address || '—'],
+    ['Date:', formatDate(new Date().toISOString().slice(0, 10))],
+    ['Company:', unit?.entity || project.contractor || 'Axis Plumbing'],
+    ['Office:', unit?.office || ''],
+    ['Direct:', unit?.phone || ''],
+  ]
+  for (const [k, v] of lines) {
+    if (!v) continue
+    doc.setFont('helvetica', 'bold')
+    doc.text(k, M, y)
+    doc.setFont('helvetica', 'normal')
+    doc.text(v, M + 26, y, { maxWidth: PAGE.w - M * 2 - 26 })
+    y += 7
+  }
+  y += 6
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(12)
+  doc.text(`${defects.length} items · ${aud(defects.reduce((n, d) => n + (d.cost ?? 0), 0))}`, M, y)
+  y += 6
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(110, 120, 130)
+  doc.text(`Open ${defects.filter((d) => d.status === 'open').length} · Rectified ${defects.filter((d) => d.status === 'rectified').length} · Closed ${defects.filter((d) => d.status === 'closed').length}`, M, y)
+  doc.setTextColor(INK[0], INK[1], INK[2])
+
+  // Rows.
+  doc.addPage()
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(10)
+  doc.text('QA report export', M, 14)
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.text(`Project Name: ${project.name}`, M, 19)
+  doc.text(`Printed: ${new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`, M, 23)
+
+  const drawingById = new Map(drawings.map((d) => [d.id, d]))
+  const rows: (string | { image: string })[][] = []
+  for (const d of defects) {
+    const plan = d.drawingId ? drawingById.get(d.drawingId) : undefined
+    const map = plan && d.x !== undefined && d.y !== undefined ? await miniMap(plan, d.x, d.y, '1') : ''
+    const photo = photos.find((p) => p.defectId === d.id)
+    rows.push([
+      d.number,
+      [d.locationPath, plan ? `${plan.number} ${plan.revision}`.trim() : '', d.locRef].filter(Boolean).join('\n') || '-',
+      map ? { image: map } : '',
+      `${d.service}: ${d.description}${d.status !== 'open' ? `\n[${DEFECT_STATUS_LABEL[d.status]}]` : ''}`,
+      d.cost ? aud(d.cost) : '',
+      photo ? { image: photo.thumb } : '',
+    ])
+  }
+
+  autoTable(doc, {
+    startY: 27,
+    margin: { left: M, right: M, bottom: 14 },
+    theme: 'grid',
+    styles: { fontSize: 6.8, cellPadding: 1.6, lineColor: [LINE[0], LINE[1], LINE[2]], lineWidth: 0.2, textColor: [INK[0], INK[1], INK[2]], valign: 'top', minCellHeight: 30 },
+    headStyles: { fillColor: [GREY[0], GREY[1], GREY[2]], textColor: [INK[0], INK[1], INK[2]], fontStyle: 'bold' },
+    head: [['ID', 'Location / Loc.Ref', 'Mini Map', 'Description', 'Costs', 'Photo']],
+    body: rows.map((r) => r.map((c) => (typeof c === 'string' ? c : ''))),
+    columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 34 }, 2: { cellWidth: 30 }, 3: { cellWidth: 'auto' }, 4: { cellWidth: 16, halign: 'right' }, 5: { cellWidth: 30 } },
+    didDrawCell: (data) => {
+      if (data.section !== 'body') return
+      const cell = rows[data.row.index]?.[data.column.index]
+      if (!cell || typeof cell === 'string') return
+      const w = data.cell.width - 3
+      const h = data.cell.height - 3
+      const s = Math.min(w, h)
+      try {
+        doc.addImage(cell.image, 'JPEG', data.cell.x + 1.5, data.cell.y + 1.5, s, s)
+      } catch {
+        // an unreadable image leaves an empty cell
+      }
+    },
+  })
+
+  const pages = doc.getNumberOfPages()
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(120, 130, 140)
+    doc.text(`${unit?.entity ?? project.contractor ?? 'Axis'} · Reviewdoc`, M, PAGE.h - 6)
+    doc.text(`Pages ${p} / ${pages}`, PAGE.w - M, PAGE.h - 6, { align: 'right' })
+  }
   return doc.output('blob')
 }

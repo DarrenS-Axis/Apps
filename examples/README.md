@@ -5,10 +5,13 @@ these are the real output of **Export PDF**, not mock-ups of it.
 
 | File | ITP |
 | --- | --- |
-| `ITP-015-Sanitary-Plumbing.pdf` | 015 Sanitary Plumbing |
-| `ITP-022-Potable-Cold-Water.pdf` | 022 Potable Cold Water |
-| `ITP-024-Hot-Water-Service.pdf` | 024 Hot Water Service |
-| `ITP-029-Sanitary-Fixtures-and-Tapware.pdf` | 029 Sanitary Fixtures and Tapware |
+| `ITP-016-Sanitary-Plumbing.pdf` | 016 Sanitary Plumbing |
+| `ITP-023-Potable-Cold-Water.pdf` | 023 Potable Cold Water |
+| `ITP-025-Hot-Water-Service.pdf` | 025 Hot Water Service |
+| `ITP-030-Sanitary-Fixtures-and-Tapware.pdf` | 030 Sanitary Fixtures and Tapware |
+
+Numbered as in the Axis Controldoc library (43 ITPs); the first release of this app used
+a different list, so the same four ITPs were 015 / 022 / 024 / 029 there.
 
 Each one carries a verified materials table with batch and WaterMark references,
 every schedule item signed and dated, hold and witness points released with the
@@ -39,4 +42,4 @@ node tools/make-examples.mjs
 ```
 
 Set `ITP_CLIENT_LOGO` to the head contractor's official logo file to use it in
-place of the stand-in, and `ITP_ONLY=022,024` to rebuild only some of them.
+place of the stand-in, and `ITP_ONLY=023,025` to rebuild only some of them.

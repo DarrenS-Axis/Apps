@@ -89,6 +89,47 @@ export const belowGroundTemplates: ItpTemplate[] = [
   /* ------------------------------------------------------------------ 002 */
   mk({
     code: '002',
+    title: 'Inground Sewer Rising Main',
+    group: G,
+    scope:
+      'Buried pumped sewage rising main from the pump station discharge to the gravity discharge point, including thrust restraint, air valves and marker tape.',
+    standards: ['AS/NZS 3500.2:2021', 'AS/NZS 4130', 'AS/NZS 2033', 'AS/NZS 2566.2', 'AS 1345'],
+    materials: [
+      mat('Rising main pipework', 'PE100 to AS/NZS 4130, PN class to exceed pump shut-off head, or DICL / PVC-O as specified'),
+      mat('Fittings and jointing', 'Electrofusion / butt fusion to AS/NZS 4129, jointed by an accredited welder, or restrained mechanical joints'),
+      mat('Valves and pits', 'Sewage-duty isolation, non-return and air release valves in accessible pits'),
+      mat('Bedding and backfill', 'PM 64 quarry sand bedding, PM 2/20 quarry rubble base'),
+      mat('Marker tape and tracer wire', 'Detectable marker tape 300 mm above the pipe; tracer wire on non-metallic mains'),
+    ],
+    items: [
+      ...drainageCore('sewer rising main', 'PE100 / DICL / PVC-O — PN class to exceed pump shut-off head'),
+      weldJoints('electrofusion / butt fusion'),
+      {
+        installation: 'Check thrust restraint and anchor blocks at bends, tees, valves and dead ends.',
+        acceptance: 'In accordance with AS/NZS 2566.2 and the approved drawings. Concrete thrust blocks against undisturbed ground, sized to the design pressure.',
+        point: 'X',
+        photoHint: 'Thrust block before backfill',
+      },
+      {
+        installation: 'Check high-point air release and low-point scour valves, and their pits and covers.',
+        acceptance: "In accordance with AS/NZS 3500.2:2021 Section 12 'Pumped Systems' and the approved drawings. Valves accessible and sewage duty.",
+        point: 'X',
+        photoHint: 'Air valve pit',
+      },
+      trenchDepthCover('600 mm', 'AS/NZS 3500.2:2021'),
+      markerTape('sewer rising main', 'cream / "SEWER"'),
+      backfill(),
+      pressureTest(1500, 30, 'AS/NZS 3500.2:2021 Section 15'),
+      authorityInspection('Water authority'),
+      sealOpenEnds(),
+      flushing(),
+      asBuilt(),
+    ],
+  }),
+
+  /* ------------------------------------------------------------------ 003 */
+  mk({
+    code: '003',
     title: 'Inground Tradewaste Drainage',
     group: G,
     scope:
@@ -124,9 +165,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 003 */
+  /* ------------------------------------------------------------------ 004 */
   mk({
-    code: '003',
+    code: '004',
     title: 'Inground High Temperature Sanitary Drainage',
     group: G,
     scope:
@@ -177,9 +218,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 004 */
+  /* ------------------------------------------------------------------ 005 */
   mk({
-    code: '004',
+    code: '005',
     title: 'Inground Stormwater Drainage',
     group: G,
     scope:
@@ -218,9 +259,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 005 */
+  /* ------------------------------------------------------------------ 006 */
   mk({
-    code: '005',
+    code: '006',
     title: 'Inground Stormwater Rising Mains',
     group: G,
     scope: 'Buried pressurised stormwater discharge mains from pump stations to the point of discharge.',
@@ -268,9 +309,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 006 */
+  /* ------------------------------------------------------------------ 007 */
   mk({
-    code: '006',
+    code: '007',
     title: 'Inground Siphonic Drainage',
     group: G,
     scope:
@@ -329,9 +370,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 007 */
+  /* ------------------------------------------------------------------ 008 */
   mk({
-    code: '007',
+    code: '008',
     title: 'Inground Fuel and Stormwater Drainage',
     group: G,
     scope:
@@ -383,9 +424,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 008 */
+  /* ------------------------------------------------------------------ 009 */
   mk({
-    code: '008',
+    code: '009',
     title: 'Inground Potable Water',
     group: G,
     scope:
@@ -428,9 +469,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 009 */
+  /* ------------------------------------------------------------------ 010 */
   mk({
-    code: '009',
+    code: '010',
     title: 'Inground Non Potable Water',
     group: G,
     scope:
@@ -472,9 +513,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 010 */
+  /* ------------------------------------------------------------------ 011 */
   mk({
-    code: '010',
+    code: '011',
     title: 'Inground Natural Gas',
     group: G,
     scope:
@@ -541,9 +582,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 011 */
+  /* ------------------------------------------------------------------ 012 */
   mk({
-    code: '011',
+    code: '012',
     title: 'Inground LPG Gas',
     group: G,
     scope:
@@ -603,9 +644,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 012 */
+  /* ------------------------------------------------------------------ 013 */
   mk({
-    code: '012',
+    code: '013',
     title: 'Inground Fire Hydrant Service',
     group: G,
     scope:
@@ -659,9 +700,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 013 */
+  /* ------------------------------------------------------------------ 014 */
   mk({
-    code: '013',
+    code: '014',
     title: 'Inground Fire Sprinkler Service',
     group: G,
     scope:
@@ -717,9 +758,9 @@ export const belowGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 014 */
+  /* ------------------------------------------------------------------ 015 */
   mk({
-    code: '014',
+    code: '015',
     title: 'Decks and Cast In Drainage',
     group: G,
     scope:
@@ -780,7 +821,7 @@ export const belowGroundTemplates: ItpTemplate[] = [
       {
         installation: 'Install fire collars and seals to penetrations through rated slabs.',
         acceptance: 'In accordance with AS 4072.1 and the tested system, matching the FRL of the slab. Products labelled and register updated.',
-        point: 'S',
+        point: 'M',
         releasedBy: 'Fire engineer / Building surveyor',
         photoHint: 'Installed collar with product label',
       },

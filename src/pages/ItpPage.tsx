@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { deleteItp, deletePin, duplicateItp, updateItp, uid } from '../data/db'
 import { useDrawings, useItp, usePhotos, usePhotosByItem, useProject, useSettings } from '../data/store'
-import type { Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour, Settings } from '../data/types'
+import type { Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour, Settings, TestRecord } from '../data/types'
 import { POINT_TYPES, ITP_STATUS_LABEL, REGION_COLOURS } from '../data/types'
+import { getTemplate } from '../data/templates'
 import {
   ConfirmButton,
   Empty,
@@ -30,7 +31,7 @@ import { PlanViewer, type PlanMode } from '../components/PlanViewer'
 import { blockingHoldFor, deriveStatus, formatDate, formatDateTime, itpProgress, slug, statusChipClass, todayIso } from '../lib/format'
 import { exportItpPdf } from '../lib/pdf'
 
-type Tab = 'schedule' | 'materials' | 'plans' | 'signoff'
+type Tab = 'schedule' | 'materials' | 'test' | 'plans' | 'signoff'
 
 export function ItpPage() {
   const { projectId, itpId } = useParams()
@@ -110,8 +111,9 @@ export function ItpPage() {
         <div className="card__body">
           <div className="row" style={{ alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="row" style={{ gap: 8 }}>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                 <span className="chip chip--accent mono">ITP {itp.itpNumber}</span>
+                {itp.itcNumber ? <span className="chip mono">ITC # {itp.itcNumber}</span> : null}
                 <span className={`chip ${statusChipClass(status)}`}>{ITP_STATUS_LABEL[status]}</span>
               </div>
               <h2 style={{ fontSize: 17, marginTop: 8 }}>{itp.title}</h2>
@@ -119,6 +121,11 @@ export function ItpPage() {
                 {itp.area}
                 {itp.location ? ` · ${itp.location}` : ''} · Rev {itp.revision} of {formatDate(itp.revisionDate)}
               </p>
+              {itp.locRef || itp.locationPath ? (
+                <p className="muted small mono" style={{ margin: '2px 0 0' }}>
+                  {[itp.locationPath, itp.locRef].filter(Boolean).join(' · ')}
+                </p>
+              ) : null}
             </div>
             <button className="btn btn--ghost btn--sm" onClick={() => setEditingHeader(true)} type="button">
               Edit
@@ -157,6 +164,7 @@ export function ItpPage() {
           [
             ['schedule', `Schedule (${itp.items.length})`],
             ['materials', `Materials (${itp.materials.length})`],
+            ['test', 'Test record'],
             ['plans', `Plans (${itp.pins.length + (itp.regions?.length ?? 0)})`],
             ['signoff', 'Sign-off'],
           ] as [Tab, string][]
@@ -193,6 +201,7 @@ export function ItpPage() {
       ) : null}
 
       {tab === 'materials' ? <MaterialsTab itp={itp} onToast={showToast} /> : null}
+      {tab === 'test' ? <TestRecordTab itp={itp} onToast={showToast} /> : null}
       {tab === 'plans' ? (
         <PlansTab itp={itp} projectId={projectId!} onToast={showToast} onOpenPhoto={setViewing} />
       ) : null}
@@ -635,6 +644,114 @@ function ReleaseSheet({
 }
 
 /* ------------------------------------------------------------- materials */
+
+/**
+ * Section 3.0 of the Controldoc form — the same rows on every ITP, filled in
+ * on the day of the test, with the standard's minimum criteria at the top.
+ */
+function TestRecordTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }) {
+  const settings = useSettings()
+  const tpl = getTemplate(itp.templateCode)
+  const rec: TestRecord = itp.testRecord ?? { service: itp.title, testType: tpl?.test.type ?? 'VISUAL' }
+  const patch = (changes: Partial<TestRecord>) => updateItp(itp.id, { testRecord: { ...rec, ...changes } })
+  const minimum = tpl?.test
+  const pressureField = (label: string, key: keyof TestRecord) => (
+    <Field label={label}>
+      <input type="text" inputMode="decimal" value={(rec[key] as string | undefined) ?? ''} onChange={(e) => void patch({ [key]: e.target.value })} />
+    </Field>
+  )
+  return (
+    <div className="card">
+      <div className="card__body stack">
+        <div className="banner banner--info">
+          <div>
+            <strong>Australian Standard minimum test criteria.</strong> {minimum?.standard ?? 'Hydraulic specification'}
+            {minimum?.pressureKpa ? ` — ${minimum.pressureKpa} kPa` : ''}
+            {minimum?.minutes ? ` for not less than ${minimum.minutes} minutes` : ''}.
+          </div>
+        </div>
+        <div className="field-grid">
+          <Field label="Service">
+            <input type="text" value={rec.service} onChange={(e) => void patch({ service: e.target.value })} />
+          </Field>
+          <Field label="Test type">
+            <select value={rec.testType} onChange={(e) => void patch({ testType: e.target.value })}>
+              {['PRESSURE TEST', 'AIR TEST', 'WATER TEST', 'FLOW TEST', 'COMMISSIONING TEST', 'VISUAL', 'N/A'].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {minimum?.preTest ? (
+          <div className="field-grid">
+            <Field label={`${minimum.preTest.label} started`}>
+              <input type="time" value={rec.preTestStarted ?? ''} onChange={(e) => void patch({ preTestStarted: e.target.value })} />
+            </Field>
+            <Field label={`${minimum.preTest.label} ended`}>
+              <input type="time" value={rec.preTestEnded ?? ''} onChange={(e) => void patch({ preTestEnded: e.target.value })} />
+            </Field>
+            {pressureField(`${minimum.preTest.label} pressure (kPa)`, 'preTestPressure')}
+          </div>
+        ) : null}
+        <div className="field-grid">
+          <Field label="Date of test">
+            <input type="date" value={rec.dateOfTest ?? ''} onChange={(e) => void patch({ dateOfTest: e.target.value })} />
+          </Field>
+          <Field label="Test equipment">
+            <select value={rec.equipment ?? ''} onChange={(e) => void patch({ equipment: e.target.value })}>
+              <option value="">—</option>
+              {['Water', 'Air', 'Nitrogen', 'Gauge and test board', 'Flow meter'].map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <div className="field-grid">
+          <Field label="Final test started">
+            <input type="time" value={rec.testStarted ?? ''} onChange={(e) => void patch({ testStarted: e.target.value })} />
+          </Field>
+          <Field label="Final test ended">
+            <input type="time" value={rec.testEnded ?? ''} onChange={(e) => void patch({ testEnded: e.target.value })} />
+          </Field>
+        </div>
+        <div className="field-grid">
+          {pressureField('Pressure at start (kPa)', 'pressureAtStart')}
+          {pressureField('Pressure loss (kPa) or loss at end (ml)', 'loss')}
+        </div>
+        {pressureField('Total loss (kPa) or make-up water (ml)', 'totalLoss')}
+        <div className="field-grid">
+          <Field label="Test pass">
+            <select value={rec.pass === true ? 'yes' : rec.pass === false ? 'no' : ''} onChange={(e) => void patch({ pass: e.target.value === '' ? null : e.target.value === 'yes' })}>
+              <option value="">—</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </Field>
+          <Field label="ITP compliance check complete">
+            <select value={rec.complianceCheck === true ? 'yes' : rec.complianceCheck === false ? 'no' : ''} onChange={(e) => void patch({ complianceCheck: e.target.value === '' ? null : e.target.value === 'yes' })}>
+              <option value="">—</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Additional notes">
+          <textarea value={rec.notes ?? ''} onChange={(e) => void patch({ notes: e.target.value })} />
+        </Field>
+        <p className="small muted" style={{ margin: 0 }}>
+          Library minimum: {tpl?.testingPhotos ?? 2} testing photos and {tpl?.installationPhotos ?? 2} installation photos. Entered by {settings.userName || 'you'}.
+        </p>
+        <button className="btn btn--ghost btn--sm" type="button" onClick={() => onToast('Test record saved')} style={{ alignSelf: 'flex-start' }}>
+          Done
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function MaterialsTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }) {
   const settings = useSettings()
@@ -1357,7 +1474,15 @@ function SignOffTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }
                   await updateItp(itp.id, {
                     signOff: { name, licence, signature, at: Date.now(), role: settings.userRole, company: settings.userCompany },
                     dateCompleted,
-                    status: canComplete ? 'complete' : itp.status,
+                    axisSignOff: {
+                      assignee: name,
+                      company: settings.userCompany,
+                      signDate: dateCompleted,
+                      signature,
+                      enteredBy: settings.userName,
+                      at: Date.now(),
+                    },
+                    status: canComplete ? 'completed_by_site' : itp.status,
                   })
                   onToast('ITP signed off')
                 }}
@@ -1412,7 +1537,16 @@ function SignOffTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }
                 onClick={async () => {
                   await updateItp(itp.id, {
                     clientSignOff: { name: clientName, company: clientCompany, signature: clientSignature, at: Date.now() },
-                    status: 'closed',
+                    additionalSignOff: {
+                      assignee: clientName,
+                      company: clientCompany,
+                      signDate: new Date().toISOString().slice(0, 10),
+                      signature: clientSignature,
+                      enteredBy: settings.userName,
+                      at: Date.now(),
+                    },
+                    dateClosed: new Date().toISOString().slice(0, 10),
+                    status: 'reviewed_approved',
                   })
                   onToast('ITP accepted and closed out')
                 }}

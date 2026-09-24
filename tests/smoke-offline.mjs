@@ -2,6 +2,7 @@
 // with no signal. Requires a production build served over a secure context
 // (https or localhost) — the service worker does not register otherwise.
 import { chromium } from 'playwright'
+import { createProject, onboard, openPhotos, tab } from './helpers.mjs'
 import fs from 'node:fs'
 
 fs.mkdirSync('/tmp/itp-shots-offline', { recursive: true })
@@ -43,15 +44,16 @@ if (!hasJs) errors.push('No JS bundle was precached — a cold offline start wou
 if (!hasCss) errors.push('No stylesheet was precached — a cold offline start would render unstyled')
 
 // Create a job so there is state to survive the offline reload.
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Offline Test Job')
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: 'Offline Test Job' })
 await page.waitForTimeout(800)
 
 // Cut the network entirely, then reload.
+console.log('route before reload:', new URL(page.url()).hash)
 await ctx.setOffline(true)
 await page.reload({ waitUntil: 'domcontentloaded' })
 await page.waitForTimeout(1500)
+console.log('route after reload:', new URL(page.url()).hash)
 
 const heading = await page.locator('.appbar__title h1').textContent()
 console.log('after offline reload, header shows:', JSON.stringify(heading))
@@ -60,13 +62,13 @@ if (!heading?.includes('Offline Test Job')) {
 }
 
 // The register must still be usable with no network.
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(600)
 await page.getByRole('button', { name: /ITP register/ }).click()
 await page.waitForTimeout(600)
 const rows = await page.locator('.listitem').count()
 console.log('templates available offline:', rows)
-if (rows !== 42) errors.push(`Expected 42 templates offline, got ${rows}`)
+if (rows !== 43) errors.push(`Expected 43 templates offline, got ${rows}`)
 
 await page.screenshot({ path: '/tmp/itp-shots-offline/after-offline-reload.png', fullPage: false })
 await browser.close()

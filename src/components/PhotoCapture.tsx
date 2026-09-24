@@ -7,8 +7,18 @@ import { ConfirmButton, IconCamera, IconClose, IconTrash, Sheet } from './ui'
 
 /* ------------------------------------------------------------ capture bar */
 
+export interface CaptureTarget {
+  penetrationId?: string
+  defectId?: string
+  projectId?: string
+  /** Lines burnt into the photo under the timestamp. */
+  contextLines?: string[]
+}
+
 interface CaptureProps {
-  itp: Itp
+  /** The ITP the photo evidences — or `target` for a Firedoc / Reviewdoc record. */
+  itp?: Itp
+  target?: CaptureTarget
   settings: Settings
   itemNo?: string
   /** Plan pin these photos are being taken at. */
@@ -26,6 +36,7 @@ interface CaptureProps {
  */
 export function PhotoCaptureButtons({
   itp,
+  target,
   settings,
   itemNo,
   pinId,
@@ -43,17 +54,22 @@ export function PhotoCaptureButtons({
     setBusy(true)
     try {
       for (const file of Array.from(files)) {
-        const pin = pinId ? itp.pins.find((p) => p.id === pinId) : undefined
+        const pin = pinId && itp ? itp.pins.find((p) => p.id === pinId) : undefined
         const photo = await capturePhoto(file, {
-          itpId: itp.id,
+          itpId: itp?.id,
+          penetrationId: target?.penetrationId,
+          defectId: target?.defectId,
+          projectId: itp?.projectId ?? target?.projectId,
           itemNo,
           pinId,
           category: defaultCategory,
           settings,
-          contextLines: [
-            `ITP ${itp.itpNumber} — ${itp.title}`,
-            [itp.area, itemNo ? `Item ${itemNo}` : '', pin ? `Pin ${pin.label}` : ''].filter(Boolean).join(' · '),
-          ],
+          contextLines: itp
+            ? [
+                `ITP ${itp.itpNumber} — ${itp.title}`,
+                [itp.area, itemNo ? `Item ${itemNo}` : '', pin ? `Pin ${pin.label}` : ''].filter(Boolean).join(' · '),
+              ]
+            : (target?.contextLines ?? []),
         })
         await addPhoto(photo)
         onCaptured(photo)
@@ -132,7 +148,8 @@ export function PhotoViewer({
   onDeleted,
 }: {
   photo: Photo
-  itp: Itp
+  /** Present for ITP photos; Firedoc and Reviewdoc photos have no items or pins to file against. */
+  itp?: Itp
   onClose: () => void
   onChanged: () => void
   onDeleted: () => void
@@ -143,7 +160,7 @@ export function PhotoViewer({
   const [itemNo, setItemNo] = useState(photo.itemNo ?? '')
   const [pinId, setPinId] = useState(photo.pinId ?? '')
 
-  const pinLabel = itp.pins.find((p) => p.id === photo.pinId)?.label
+  const pinLabel = itp?.pins.find((p) => p.id === photo.pinId)?.label
 
   // The lightbox covers the screen, so the page behind it must not scroll —
   // otherwise closing it drops you somewhere you did not leave. Escape closes
@@ -192,35 +209,39 @@ export function PhotoViewer({
                 ))}
               </select>
             </label>
+            {itp ? (
+              <label className="field">
+                <span>Against item</span>
+                <select value={itemNo} onChange={(e) => setItemNo(e.target.value)}>
+                  <option value="">General record</option>
+                  {itp.items.map((i) => (
+                    <option key={i.no} value={i.no}>
+                      {i.no} — {i.installation.slice(0, 52)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          {itp ? (
             <label className="field">
-              <span>Against item</span>
-              <select value={itemNo} onChange={(e) => setItemNo(e.target.value)}>
-                <option value="">General record</option>
-                {itp.items.map((i) => (
-                  <option key={i.no} value={i.no}>
-                    {i.no} — {i.installation.slice(0, 52)}
+              <span>Taken at plan pin</span>
+              <select value={pinId} onChange={(e) => setPinId(e.target.value)}>
+                <option value="">Not located on a plan</option>
+                {itp.pins.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    Pin {p.label}
+                    {p.note ? ` — ${p.note.slice(0, 44)}` : ''}
                   </option>
                 ))}
               </select>
+              {itp.pins.length === 0 ? (
+                <span style={{ textTransform: 'none', fontWeight: 400, marginTop: 4, color: 'var(--ink-3)' }}>
+                  Drop a pin on the Plans tab first to locate photos on the drawing.
+                </span>
+              ) : null}
             </label>
-          </div>
-          <label className="field">
-            <span>Taken at plan pin</span>
-            <select value={pinId} onChange={(e) => setPinId(e.target.value)}>
-              <option value="">Not located on a plan</option>
-              {itp.pins.map((p) => (
-                <option key={p.id} value={p.id}>
-                  Pin {p.label}
-                  {p.note ? ` — ${p.note.slice(0, 44)}` : ''}
-                </option>
-              ))}
-            </select>
-            {itp.pins.length === 0 ? (
-              <span style={{ textTransform: 'none', fontWeight: 400, marginTop: 4, color: 'var(--ink-3)' }}>
-                Drop a pin on the Plans tab first to locate photos on the drawing.
-              </span>
-            ) : null}
-          </label>
+          ) : null}
           <div className="row row--end">
             <button className="btn btn--ghost" onClick={() => setEditing(false)} type="button">
               Cancel

@@ -1,60 +1,155 @@
 /**
- * Domain model for hydraulic services Inspection & Test Plans.
+ * Domain model for the Axis QA system.
  *
- * The shape follows the paper ITP it replaces: a header block, a materials
- * verification table, a numbered inspection & test schedule where every row
- * carries an inspection point type, and a sign-off block.
+ * Three modules share one project structure, the way the Controldoc reports
+ * present them:
+ *
+ *   Controldoc  Inspection & Test Plans — materials, checklist, test record,
+ *               attachments, Axis and client sign-off
+ *   Firedoc     the fire-rated penetration register, allocated against the
+ *               Passive Fire Rating Schedule and pinned on penetration plans
+ *   Reviewdoc   the QA defect register, costed and reported to the head
+ *               contractor
+ *
+ * Above the project sits the business unit — a state office such as
+ * "NSW Major Works" — and above that the national roll-up. A person belongs
+ * to one state and sees only its projects; the national QA role sees every
+ * state's numbers, for reporting.
  */
 
 /**
- * Inspection point classification, using the legend printed on the ITP:
- * W - Witness; H - Hold Point; S - Surveillance; X - Self Inspection.
+ * Inspection point key, as printed on every Controldoc ITP:
+ * H = Hold Point, M = Monitor / Surveillance, W = Witness,
+ * X = Self Inspection by performer of work.
  */
-export type PointType = 'H' | 'W' | 'S' | 'X'
+export type PointType = 'H' | 'W' | 'M' | 'X'
 
 export const POINT_TYPES: Record<PointType, { label: string; short: string; cls: string; help: string }> = {
   H: {
     label: 'Hold Point',
     short: 'HOLD',
     cls: 'chip--hold',
-    help: 'Work must not proceed past this item until it is released by the nominated party.',
+    help: 'Work must not proceed past this step until it is released by the nominated party.',
   },
   W: {
-    label: 'Witness Point',
+    label: 'Witness',
     short: 'WITNESS',
     cls: 'chip--witness',
-    help: 'The nominated party is given notice and may attend. Work may proceed if they do not attend.',
+    help: 'The nominated party is given notice and may attend. Work may proceed if they do not.',
   },
-  S: {
-    label: 'Surveillance',
-    short: 'SURV',
+  M: {
+    label: 'Monitor / Surveillance',
+    short: 'MONITOR',
     cls: 'chip--surv',
     help: 'Monitored by the nominated party on an ongoing or sampled basis.',
   },
   X: {
-    label: 'Self Inspection',
+    label: 'Self Inspection by performer of work',
     short: 'SELF',
     cls: 'chip--self',
-    help: 'Inspected and recorded by the installing tradesperson.',
+    help: 'Inspected and recorded by the person doing the work.',
   },
 }
 
+/** Legacy key from the first release, read back as Monitor / Surveillance. */
+export const normalisePoint = (p: string): PointType => (p === 'S' ? 'M' : (p as PointType))
+
 export type ItemStatus = 'pending' | 'pass' | 'fail' | 'na'
 
-export type ItpStatus = 'draft' | 'in_progress' | 'awaiting_hold' | 'complete' | 'closed'
+/**
+ * Lifecycle shared by every record in the three modules, using the column
+ * headings from the monthly QA report so the numbers here are the numbers
+ * there: Setup → In Progress → Completed by Site → Reviewed & Approved, with
+ * Defected as the review's other outcome.
+ */
+export type QaStatus = 'setup' | 'in_progress' | 'completed_by_site' | 'reviewed_approved' | 'defected'
 
-export const ITP_STATUS_LABEL: Record<ItpStatus, string> = {
-  draft: 'Draft',
+export const QA_STATUS_LABEL: Record<QaStatus, string> = {
+  setup: 'Setup',
   in_progress: 'In progress',
-  awaiting_hold: 'Awaiting release',
-  complete: 'Complete',
-  closed: 'Closed out',
+  completed_by_site: 'Completed by site',
+  reviewed_approved: 'Reviewed & approved',
+  defected: 'Defected',
+}
+
+export const QA_STATUSES: QaStatus[] = ['setup', 'in_progress', 'completed_by_site', 'reviewed_approved', 'defected']
+
+/** Records still to be finished, per the report's "Outstanding" column. */
+export const isOutstanding = (s: QaStatus): boolean => s === 'setup' || s === 'in_progress' || s === 'defected'
+
+export type ItpStatus = QaStatus
+export const ITP_STATUS_LABEL = QA_STATUS_LABEL
+
+/* ------------------------------------------------------------ organisation */
+
+/** Australian states and territories Axis operates in. */
+export type StateCode = 'NSW' | 'ACT' | 'QLD' | 'VIC' | 'NT' | 'WA' | 'SA' | 'TAS'
+
+export const STATE_NAMES: Record<StateCode, string> = {
+  NSW: 'New South Wales',
+  ACT: 'Australian Capital Territory',
+  QLD: 'Queensland',
+  VIC: 'Victoria',
+  NT: 'Northern Territory',
+  WA: 'Western Australia',
+  SA: 'South Australia',
+  TAS: 'Tasmania',
+}
+
+export const STATE_CODES: StateCode[] = ['NSW', 'ACT', 'QLD', 'VIC', 'NT', 'WA', 'SA', 'TAS']
+
+/**
+ * A business unit is the "BUSINESS UNIT (STATE/OFFICE)" column of the QA
+ * report — "NSW Major Works", "NSW Med Gas", "QLD". Projects belong to one,
+ * and a state can have several.
+ */
+export interface BusinessUnit {
+  id: string
+  state: StateCode
+  name: string
+  /** Trading entity printed on sign-offs, e.g. "Axis Plumbing NSW". */
+  entity: string
+  office?: string
+  phone?: string
+  abn?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * What a person can see. Site and state QA are held to their own state; the
+ * national QA role sees every state's projects and numbers, for reporting.
+ */
+export type UserRole = 'site' | 'state_qa' | 'national_qa'
+
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  site: 'Site',
+  state_qa: 'State QA',
+  national_qa: 'National QA',
+}
+
+/** Which modules a project runs. Small works often run Controldoc only. */
+export interface ProjectModules {
+  controldoc: boolean
+  firedoc: boolean
+  reviewdoc: boolean
+}
+
+export type ModuleKey = keyof ProjectModules
+
+export const MODULE_LABEL: Record<ModuleKey, string> = {
+  controldoc: 'Controldoc',
+  firedoc: 'Firedoc',
+  reviewdoc: 'Reviewdoc',
 }
 
 /* ---------------------------------------------------------------- project */
 
 export interface Project {
   id: string
+  /** Business unit this project reports under. */
+  businessUnitId: string
+  state: StateCode
   name: string
   /** Client / head contractor the ITPs are issued to. */
   client: string
@@ -73,6 +168,12 @@ export interface Project {
   stage: string
   /** Security marking printed in the PDF header/footer, e.g. "OFFICIAL". */
   marking: string
+  modules: ProjectModules
+  /**
+   * Client document-number scheme for ITP references, with `{n}` for the
+   * sequence, e.g. "SMCSWSPS-AXP-OSN-BS-ITP-{n}". Blank uses the ITC number.
+   */
+  locRefScheme?: string
   createdAt: number
   updatedAt: number
   archived?: boolean
@@ -181,7 +282,15 @@ export const PHOTO_CATEGORIES: Record<PhotoCategory, string> = {
 
 export interface Photo {
   id: string
+  /**
+   * The ITP this photo evidences. Firedoc and Reviewdoc photos keep this
+   * empty and name their record through `penetrationId` / `defectId`.
+   */
   itpId: string
+  penetrationId?: string
+  defectId?: string
+  /** Project the photo belongs to, so it can be filed without a lookup. */
+  projectId?: string
   /** Inspection item this photo evidences; empty for general record shots. */
   itemNo?: string
   category: PhotoCategory
@@ -234,8 +343,26 @@ export interface TemplateItem {
   photoHint?: string
 }
 
+/**
+ * The test record every Controldoc ITP carries as its section 3.0. It is a
+ * fixed form — the same eighteen rows on every ITP — so the template only
+ * needs to say what the test is and what the standard demands of it.
+ */
+export interface TestSpec {
+  /** "PRESSURE TEST", "AIR TEST", "WATER TEST", "VISUAL", "FLOW TEST", "N/A". */
+  type: string
+  /** Standard clause the minimum criteria come from. */
+  standard: string
+  /** Minimum test pressure, if a pressure test. */
+  pressureKpa?: number
+  /** Minimum duration. */
+  minutes?: number
+  /** Whether a manufacturer pre-test (e.g. Viega crimp) precedes the final test. */
+  preTest?: { label: string; pressureKpa: number; minutes: number }
+}
+
 export interface ItpTemplate {
-  /** Three digit code from the ITP register, e.g. "002". */
+  /** Three digit code from the Controldoc library, e.g. "016". */
   code: string
   title: string
   /** "Below ground", "Above ground", "Plant & equipment". */
@@ -246,6 +373,14 @@ export interface ItpTemplate {
   standards: string[]
   materials: TemplateMaterial[]
   items: TemplateItem[]
+  test: TestSpec
+  /** Library revision, from the Controldoc library register. */
+  revision: string
+  /** Minimum photographs the library requires. */
+  installationPhotos: number
+  testingPhotos: number
+  /** Extra pages a third-party ITP form adds when supplied by the client. */
+  thirdPartyPages: number
 }
 
 export type TemplateGroup = 'Below ground' | 'Above ground' | 'Plant & equipment'
@@ -306,12 +441,77 @@ export interface SignOff {
   licence?: string
 }
 
+/** Section 3.0 of a Controldoc ITP, filled in on the day of the test. */
+export interface TestRecord {
+  service: string
+  testType: string
+  preTestStarted?: string
+  preTestEnded?: string
+  testStarted?: string
+  testEnded?: string
+  dateOfTest?: string
+  preTestPressure?: string
+  pressureAtStart?: string
+  /** "Pressure loss (kPa) or Loss at End (ml)". */
+  loss?: string
+  /** "Water", "Air", "Nitrogen". */
+  equipment?: string
+  /** "Total Loss (kPa) or Make Up Water (ml)". */
+  totalLoss?: string
+  pass?: boolean | null
+  complianceCheck?: boolean | null
+  notes?: string
+}
+
+/** A Controldoc sign-off row: who, for whom, by when, and when they did. */
+export interface Assignment {
+  assignee: string
+  company: string
+  dueDate?: string
+  signDate?: string
+  signature?: string
+  /** Who recorded the sign-off, when it was entered on someone's behalf. */
+  enteredBy?: string
+  at?: number
+}
+
+export interface Attachment {
+  id: string
+  name: string
+  /** Data URL for small files; a SharePoint drive item URL once synced. */
+  data?: string
+  url?: string
+  size?: number
+  mime?: string
+  comment?: string
+  addedAt: number
+}
+
 export interface Itp {
   id: string
   projectId: string
   templateCode: string
   /** Number printed in the "ITP NUMBER" box. */
   itpNumber: string
+  /** Controldoc ITC number — sequential across the business unit, e.g. "000299". */
+  itcNumber?: string
+  /** Folder path the ITP sits under, e.g. "CONTROLDOC > HYDRAULICS > COLD WATER". */
+  locationPath?: string
+  /** Client-scheme document reference, e.g. "LHAP-HYS-AXS-ITP-MW-L20224". */
+  locRef?: string
+  /** Marked-up plan reference and markup version. */
+  planRef?: string
+  /** 0..100, as printed on the Controldoc header. */
+  progress?: number
+  testRecord?: TestRecord
+  attachments?: Attachment[]
+  /** Section 2.0 step 15 / section 3.0 step 19: the Axis sign-off. */
+  axisSignOff?: Assignment
+  /** Section 3.0 step 20: the client or superintendent's additional sign-off. */
+  additionalSignOff?: Assignment
+  dateClosed?: string
+  /** Section 2.0 step 14: "ITP Compliant with all criteria listed above". */
+  compliant?: boolean | null
   title: string
   /** Location this instance covers, e.g. "Southern Driveway - Plant Room". */
   area: string
@@ -366,7 +566,46 @@ export interface Settings {
    * facts rather than described.
    */
   showGestureDebug?: boolean
+  /** Which state this person works in; empty until chosen. */
+  state?: StateCode
+  role: UserRole
+  /** Business units the person can open. Empty for national QA means all. */
+  businessUnitIds: string[]
+  sync: SyncConfig
   updatedAt: number
+}
+
+/**
+ * How the app reaches the shared store. Everything works with none of this
+ * set — the device is the store — and switches to SharePoint once it is.
+ */
+export interface SyncConfig {
+  /** 'local' keeps everything on the device; 'sharepoint' syncs to Microsoft 365. */
+  mode: 'local' | 'sharepoint'
+  /** Entra ID (Azure AD) application registration. */
+  tenantId?: string
+  clientId?: string
+  /** SharePoint site the QA lists live in, e.g. https://axis.sharepoint.com/sites/QA. */
+  siteUrl?: string
+  /** Graph site id, resolved from siteUrl on first sign-in. */
+  siteId?: string
+  /** Document library holding photos, plans and exported PDFs. */
+  libraryName?: string
+  /** Power Automate "When an HTTP request is received" URL the app posts events to. */
+  powerAutomateUrl?: string
+  /** Epoch ms of the last successful pull. */
+  lastSyncAt?: number
+  /** Epoch ms the SharePoint lists were last provisioned. */
+  provisionedAt?: number
+  /** Signed-in account, for display and for stamping who entered what. */
+  account?: { name: string; username: string }
+  /**
+   * Advanced: an alternative Graph endpoint and a fixed bearer token. They
+   * exist for the test harness, which stands in a mock Graph server, and for
+   * a tenant that fronts Graph with a proxy. Leave blank otherwise.
+   */
+  graphBaseUrl?: string
+  devToken?: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -378,5 +617,151 @@ export const DEFAULT_SETTINGS: Settings = {
   stampPhotos: true,
   captureGps: true,
   photoMaxEdge: 1600,
+  role: 'site',
+  businessUnitIds: [],
+  sync: { mode: 'local' },
   updatedAt: 0,
+}
+
+/* ---------------------------------------------------------------- firedoc */
+
+/**
+ * A fire-rated penetration on the Firedoc register. The number is the call-out
+ * tag on the penetration plan, so it must be unique and, once in use, never
+ * changed — the plan search that pins it depends on the two being identical.
+ */
+export interface Penetration {
+  id: string
+  projectId: string
+  /** Call-out tag, e.g. "F0001" or "L07001". */
+  number: string
+  kind: 'floor' | 'wall'
+  level?: string
+  zone?: string
+  /** Nominal service size as scheduled, e.g. "100mm". */
+  size: string
+  sizeMm?: number
+  /** Fixture / system reference from the tag: FW, SS, CO, WC, RWO, SV… */
+  ref: string
+  /** Pipe material: HDPE, PVC, Stainless, Copper, PEX. */
+  material: string
+  /** FRL of the building element, e.g. "120/120/120". */
+  frl: string
+  /** The building element: floor slab, block wall, 128mm fire-rated plasterboard… */
+  elementMaterial: string
+  /** Axis profile allocated from the Passive Fire Rating Schedule. */
+  profileId?: string
+  /** Plan the tag was found on, and where. */
+  drawingId?: string
+  x?: number
+  y?: number
+  /** True when the position came from the plan search rather than a hand drop. */
+  autoPinned?: boolean
+  status: QaStatus
+  installedBy?: string
+  installedAt?: number
+  reviewedBy?: string
+  reviewedAt?: number
+  /** Why it was defected, and what was done about it. */
+  defect?: string
+  rectifiedAt?: number
+  /** Label / sticker serial applied at the penetration. */
+  stickerNo?: string
+  notes?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* -------------------------------------------------------------- reviewdoc */
+
+/**
+ * Service prefixes used on Reviewdoc descriptions ("CW: …", "Fire Rating: …"),
+ * which the QA report groups value and quantity by.
+ */
+export type ServiceType =
+  | 'Fire Rating'
+  | 'Sanitary Drainage'
+  | 'Sanitary Plumbing'
+  | 'Stormwater'
+  | 'Trade Waste'
+  | 'CW'
+  | 'HW'
+  | 'Gas'
+  | 'Fire Hydrant'
+  | 'Fire Sprinkler'
+  | 'Incomplete work'
+  | 'Damage'
+  | 'Housekeeping'
+  | 'Other'
+
+export const SERVICE_TYPES: ServiceType[] = [
+  'Fire Rating',
+  'Sanitary Drainage',
+  'Sanitary Plumbing',
+  'Stormwater',
+  'Trade Waste',
+  'CW',
+  'HW',
+  'Gas',
+  'Fire Hydrant',
+  'Fire Sprinkler',
+  'Incomplete work',
+  'Damage',
+  'Housekeeping',
+  'Other',
+]
+
+export type DefectStatus = 'open' | 'rectified' | 'closed'
+
+export const DEFECT_STATUS_LABEL: Record<DefectStatus, string> = {
+  open: 'Open',
+  rectified: 'Rectified — awaiting review',
+  closed: 'Closed',
+}
+
+/** One Reviewdoc item: a costed, located, photographed defect. */
+export interface Defect {
+  id: string
+  projectId: string
+  /** Sequential ID as printed, e.g. "0005". */
+  number: string
+  /** Plan it was found on, with the mini-map pin. */
+  drawingId?: string
+  x?: number
+  y?: number
+  /** Folder path shown on the report, e.g. "Reviewdoc ABS > 370. ASB PENETRATION LAYOUT L 04". */
+  locationPath?: string
+  locRef?: string
+  service: ServiceType
+  description: string
+  /** Estimated rectification cost, AUD. */
+  cost?: number
+  status: DefectStatus
+  raisedBy?: string
+  raisedAt: number
+  assignedTo?: string
+  dueDate?: string
+  rectifiedAt?: number
+  rectifiedBy?: string
+  closedAt?: number
+  closedBy?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/* -------------------------------------------------------------------- sync */
+
+/**
+ * A change waiting to reach SharePoint. Every write lands here as well as in
+ * the local store, so the app behaves identically with or without signal and
+ * nothing is lost if the tab closes mid-upload.
+ */
+export interface OutboxEntry {
+  id: string
+  table: string
+  recordId: string
+  op: 'put' | 'delete'
+  at: number
+  attempts: number
+  lastError?: string
 }

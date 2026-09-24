@@ -1,27 +1,53 @@
+import { useEffect } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useActiveProjectId, useOnline, useProject, useProjects } from './data/store'
-import { IconCamera, IconCog, IconFolder, IconHome, IconList, IconPlan } from './components/ui'
+import { ensureBusinessUnits } from './data/db'
+import { useActiveProjectId, useOnline, useOutboxCount, useProject, useSettingsState, useVisibleProjects } from './data/store'
+import { IconCog, IconFolder, IconHome, IconList, IconPlan } from './components/ui'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { ProjectsPage } from './pages/ProjectsPage'
+import { StateHomePage } from './pages/StateHomePage'
+import { WelcomePage } from './pages/WelcomePage'
 import { ProjectPage } from './pages/ProjectPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ItpPage } from './pages/ItpPage'
 import { DrawingsPage } from './pages/DrawingsPage'
 import { PhotosPage } from './pages/PhotosPage'
+import { FiredocPage } from './pages/FiredocPage'
+import { ReviewdocPage } from './pages/ReviewdocPage'
+import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { isConfigured, startAutoSync } from './sync'
 
-/** Tabs are project-scoped; without a project the app shows the picker. */
+/** Tabs are project-scoped and follow the modules the project runs. */
 function TabBar({ projectId }: { projectId?: string }) {
-  const base = projectId ? `/project/${projectId}` : '/projects'
+  const project = useProject(projectId)
+  if (!projectId || !project) {
+    return (
+      <nav className="tabbar tabbar--3" aria-label="Main">
+        <NavLink to="/state" end>
+          <IconHome />
+          Projects
+        </NavLink>
+        <NavLink to="/reports">
+          <IconList />
+          QA report
+        </NavLink>
+        <NavLink to="/settings">
+          <IconCog />
+          Settings
+        </NavLink>
+      </nav>
+    )
+  }
+  const base = `/project/${projectId}`
   const tabs = [
-    { to: base, label: 'Job', Icon: IconHome, end: true },
-    { to: `${base}/itps`, label: 'ITPs', Icon: IconList },
+    { to: base, label: 'Project', Icon: IconHome, end: true },
+    ...(project.modules.controldoc ? [{ to: `${base}/itps`, label: 'Controldoc', Icon: IconList }] : []),
+    ...(project.modules.firedoc ? [{ to: `${base}/firedoc`, label: 'Firedoc', Icon: IconFire }] : []),
+    ...(project.modules.reviewdoc ? [{ to: `${base}/reviewdoc`, label: 'Reviewdoc', Icon: IconReview }] : []),
     { to: `${base}/drawings`, label: 'Plans', Icon: IconPlan },
-    { to: `${base}/photos`, label: 'Photos', Icon: IconCamera },
-    { to: '/settings', label: 'Settings', Icon: IconCog },
   ]
   return (
-    <nav className="tabbar" aria-label="Main">
+    <nav className={`tabbar tabbar--${tabs.length}`} aria-label="Main">
       {tabs.map(({ to, label, Icon, end }) => (
         <NavLink key={label} to={to} end={end} className={({ isActive }) => (isActive ? 'is-active' : undefined)}>
           <Icon />
@@ -32,33 +58,59 @@ function TabBar({ projectId }: { projectId?: string }) {
   )
 }
 
+const IconFire = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-1.5.6-2.6 1.4-3.5.3 1 .9 1.6 1.6 2 0-2.5-.4-4.7 1-7z" />
+  </svg>
+)
+const IconReview = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 5h6M9 5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2M9 5V4h6v1M9 12l2 2 4-4" />
+  </svg>
+)
+
 function Shell() {
   const location = useLocation()
   const navigate = useNavigate()
   const online = useOnline()
-  const projects = useProjects()
+  const { settings, loaded } = useSettingsState()
+  const projects = useVisibleProjects()
   const [activeId] = useActiveProjectId()
+  const pending = useOutboxCount()
 
-  // Keep the tab bar pointed at whichever project the current route belongs to.
+  useEffect(() => {
+    void ensureBusinessUnits()
+  }, [])
+  useEffect(() => startAutoSync(), [])
+
   const match = /^\/project\/([^/]+)/.exec(location.pathname)
   const routeProjectId = match?.[1]
-  const projectId = routeProjectId ?? activeId ?? projects[0]?.id
-  const project = useProject(projectId)
+  const projectId = routeProjectId ?? (projects.some((p) => p.id === activeId) ? activeId : undefined)
+  // The header names the project only on the project's own screens.
+  const project = useProject(routeProjectId)
 
-  const title = project ? project.name : 'Hydraulic ITP Manager'
+  // Until a state is chosen there is nothing to show, so every route lands on
+  // the welcome screen. Settings stays reachable for the SharePoint setup.
+  const needsWelcome = !settings.userName && location.pathname !== '/welcome' && location.pathname !== '/settings'
+
+  const title = project ? project.name : settings.state ? `Axis QA · ${settings.state}` : 'Axis QA'
   const subtitle = project
-    ? [project.projectNumber, project.client].filter(Boolean).join(' · ') || 'Inspection & Test Plans'
-    : 'Inspection & Test Plans'
-
-  // The job switcher only appears once there is more than one job, so without
-  // this there is no way back to the list of jobs at all.
-  const onProjects = location.pathname === '/projects'
+    ? [project.projectNumber, project.client].filter(Boolean).join(' · ') || 'Controldoc · Firedoc · Reviewdoc'
+    : settings.role === 'national_qa'
+      ? 'National QA'
+      : 'Controldoc · Firedoc · Reviewdoc'
+  const syncing = isConfigured(settings.sync)
+  const onHome = location.pathname === '/state' || location.pathname === '/welcome'
 
   return (
     <div className="app">
       <header className="appbar">
-        {onProjects ? null : (
-          <Link className="iconbtn appbar__jobs" to="/projects" aria-label="All jobs" title="All jobs">
+        {onHome ? (
+          <span className="appbar__mark" aria-hidden="true">
+            AXIS
+          </span>
+        ) : (
+          <Link className="iconbtn appbar__jobs" to="/state" aria-label="All projects" title="All projects">
             <IconFolder />
           </Link>
         )}
@@ -69,13 +121,13 @@ function Shell() {
             {!online ? ' · offline' : ''}
           </p>
         </div>
-        {projects.length > 1 ? (
-          <select
-            aria-label="Switch job"
-            value={projectId ?? ''}
-            onChange={(e) => navigate(`/project/${e.target.value}`)}
-            style={{ width: 'auto', maxWidth: 190, minHeight: 36 }}
-          >
+        {syncing ? (
+          <span className={`syncpill ${pending ? 'is-pending' : ''}`} title={pending ? `${pending} changes waiting for SharePoint` : 'In sync with SharePoint'}>
+            {pending ? `${pending} ↑` : '✓'}
+          </span>
+        ) : null}
+        {routeProjectId && projects.length > 1 ? (
+          <select aria-label="Switch project" value={projectId ?? ''} onChange={(e) => navigate(`/project/${e.target.value}`)} style={{ width: 'auto', maxWidth: 170, minHeight: 36 }}>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -83,26 +135,41 @@ function Shell() {
             ))}
           </select>
         ) : null}
+        {/* Project screens have no Settings tab, so the header carries it there. */}
+        {routeProjectId ? (
+          <Link className="iconbtn appbar__jobs" to="/settings" aria-label="Settings" title="Settings">
+            <IconCog />
+          </Link>
+        ) : null}
       </header>
 
       <main className="main">
-        {/* Keyed on the route so navigating away clears a failed screen. */}
         <ErrorBoundary key={location.pathname} area="this screen">
-          <Routes>
-            <Route path="/" element={<Navigate to={projectId ? `/project/${projectId}` : '/projects'} replace />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-            <Route path="/project/:projectId" element={<ProjectPage />} />
-            <Route path="/project/:projectId/itps" element={<RegisterPage />} />
-            <Route path="/project/:projectId/itp/:itpId" element={<ItpPage />} />
-            <Route path="/project/:projectId/drawings" element={<DrawingsPage />} />
-            <Route path="/project/:projectId/photos" element={<PhotosPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+          {!loaded ? null : needsWelcome ? (
+            <Navigate to="/welcome" replace />
+          ) : (
+            <Routes>
+              <Route path="/" element={<Navigate to={settings.userName ? '/state' : '/welcome'} replace />} />
+              <Route path="/welcome" element={<WelcomePage />} />
+              <Route path="/state" element={<StateHomePage />} />
+              <Route path="/projects" element={<Navigate to="/state" replace />} />
+              <Route path="/project/:projectId" element={<ProjectPage />} />
+              <Route path="/project/:projectId/itps" element={<RegisterPage />} />
+              <Route path="/project/:projectId/itp/:itpId" element={<ItpPage />} />
+              <Route path="/project/:projectId/firedoc" element={<FiredocPage />} />
+              <Route path="/project/:projectId/reviewdoc" element={<ReviewdocPage />} />
+              <Route path="/project/:projectId/drawings" element={<DrawingsPage />} />
+              <Route path="/project/:projectId/photos" element={<PhotosPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          )}
         </ErrorBoundary>
       </main>
 
-      <TabBar projectId={projectId} />
+      {/* Settings and the report keep the open project's tabs, so one tap gets back to it. */}
+      {location.pathname === '/welcome' ? null : <TabBar projectId={onHome ? undefined : projectId} />}
     </div>
   )
 }
@@ -116,8 +183,8 @@ function NotFound() {
         <p className="muted small" style={{ marginTop: 0 }}>
           That screen does not exist.
         </p>
-        <NavLink className="btn" to={projectId ? `/project/${projectId}` : '/projects'}>
-          Back to the job
+        <NavLink className="btn" to={projectId ? `/project/${projectId}` : '/state'}>
+          Back
         </NavLink>
       </div>
     </div>

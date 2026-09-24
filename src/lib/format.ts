@@ -82,23 +82,33 @@ export function blockingHoldFor(itp: Itp, index: number): ItpItem | undefined {
   return undefined
 }
 
-/** Status derived from the schedule, so a list never disagrees with the detail. */
+/**
+ * Status derived from the record, so a list never disagrees with the detail
+ * and the monthly report's columns come straight from the data:
+ *
+ *   Setup                nothing signed yet
+ *   In progress          some steps signed, or defected work being redone
+ *   Completed by site    every applicable step signed and the Axis sign-off given
+ *   Reviewed & approved  the client / superintendent's additional sign-off given
+ *   Defected             sent back at review; stays until the site re-signs
+ */
 export function deriveStatus(itp: Itp): ItpStatus {
-  if (itp.status === 'closed') return 'closed'
+  if (itp.status === 'reviewed_approved') return 'reviewed_approved'
+  if (itp.status === 'defected') return 'defected'
   const p = itpProgress(itp)
-  if (p.signed === 0 && p.failed === 0) return 'draft'
-  if (p.signed + p.na >= p.total && itp.signOff?.name) return 'complete'
-  if (p.blockingHold && p.signed > 0) return 'awaiting_hold'
+  const siteSigned = Boolean(itp.axisSignOff?.signDate || itp.signOff?.name)
+  if (p.signed + p.na >= p.total && p.failed === 0 && siteSigned) return 'completed_by_site'
+  if (p.signed === 0 && p.failed === 0 && !siteSigned) return 'setup'
   return 'in_progress'
 }
 
 export function statusChipClass(status: ItpStatus): string {
   switch (status) {
-    case 'complete':
+    case 'completed_by_site':
       return 'chip--ok'
-    case 'closed':
+    case 'reviewed_approved':
       return 'chip--accent'
-    case 'awaiting_hold':
+    case 'defected':
       return 'chip--hold'
     case 'in_progress':
       return 'chip--warn'

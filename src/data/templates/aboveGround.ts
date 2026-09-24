@@ -37,9 +37,9 @@ const aboveGroundCore = (service: string, materialOptions: string, supportStd: s
 ]
 
 export const aboveGroundTemplates: ItpTemplate[] = [
-  /* ------------------------------------------------------------------ 015 */
+  /* ------------------------------------------------------------------ 016 */
   mk({
-    code: '015',
+    code: '016',
     title: 'Sanitary Plumbing',
     group: G,
     scope:
@@ -101,9 +101,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 016 */
+  /* ------------------------------------------------------------------ 017 */
   mk({
-    code: '016',
+    code: '017',
     title: 'Sewer Rising Main',
     group: G,
     scope:
@@ -153,9 +153,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 017 */
+  /* ------------------------------------------------------------------ 018 */
   mk({
-    code: '017',
+    code: '018',
     title: 'Tradewaste Drainage',
     group: G,
     scope:
@@ -201,9 +201,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 018 */
+  /* ------------------------------------------------------------------ 019 */
   mk({
-    code: '018',
+    code: '019',
     title: 'Stormwater Drainage',
     group: G,
     scope:
@@ -253,9 +253,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 019 */
+  /* ------------------------------------------------------------------ 020 */
   mk({
-    code: '019',
+    code: '020',
     title: 'Stormwater Rising Main',
     group: G,
     scope:
@@ -297,9 +297,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 020 */
+  /* ------------------------------------------------------------------ 021 */
   mk({
-    code: '020',
+    code: '021',
     title: 'Siphonic Drainage',
     group: G,
     scope:
@@ -363,9 +363,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 021 */
+  /* ------------------------------------------------------------------ 022 */
   mk({
-    code: '021',
+    code: '022',
     title: 'Fuel and Stormwater Drainage',
     group: G,
     scope:
@@ -409,9 +409,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 022 */
+  /* ------------------------------------------------------------------ 023 */
   mk({
-    code: '022',
+    code: '023',
     title: 'Potable Cold Water',
     group: G,
     scope:
@@ -435,7 +435,7 @@ export const aboveGroundTemplates: ItpTemplate[] = [
       {
         installation: 'Check jointing method, tool calibration and jaw condition for pressed / crimped systems.',
         acceptance: "In accordance with the system manufacturer's instructions. Tool service records current, correct jaws used for each size.",
-        point: 'S',
+        point: 'M',
         releasedBy: 'Superintendent',
         photoHint: 'Tool calibration label and a completed joint',
       },
@@ -464,9 +464,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 023 */
+  /* ------------------------------------------------------------------ 024 */
   mk({
-    code: '023',
+    code: '024',
     title: 'Non Potable Water',
     group: G,
     scope:
@@ -511,9 +511,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 024 */
+  /* ------------------------------------------------------------------ 025 */
   mk({
-    code: '024',
+    code: '025',
     title: 'Hot Water Service',
     group: G,
     scope:
@@ -577,9 +577,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 025 */
+  /* ------------------------------------------------------------------ 026 */
   mk({
-    code: '025',
+    code: '026',
     title: 'Natural Gas',
     group: G,
     scope:
@@ -653,9 +653,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 026 */
+  /* ------------------------------------------------------------------ 027 */
   mk({
-    code: '026',
+    code: '027',
     title: 'LPG Gas',
     group: G,
     scope:
@@ -726,9 +726,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 027 */
+  /* ------------------------------------------------------------------ 028 */
   mk({
-    code: '027',
+    code: '028',
     title: 'Hot and Cold Water Roughins',
     group: G,
     scope:
@@ -795,9 +795,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 028 */
+  /* ------------------------------------------------------------------ 029 */
   mk({
-    code: '028',
+    code: '029',
     title: 'Fire Hydrant Service',
     group: G,
     scope:
@@ -866,9 +866,9 @@ export const aboveGroundTemplates: ItpTemplate[] = [
     ],
   }),
 
-  /* ------------------------------------------------------------------ 029 */
+  /* ------------------------------------------------------------------ 030 */
   mk({
-    code: '029',
+    code: '030',
     title: 'Sanitary Fixtures and Tapware',
     group: G,
     scope:

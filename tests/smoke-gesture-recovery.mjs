@@ -9,6 +9,7 @@
 //
 // Every gesture here therefore ends outside the viewer on purpose.
 import { chromium } from 'playwright'
+import { createProject, onboard, openPhotos, tab } from './helpers.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -27,11 +28,10 @@ page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`))
 
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
 await page.waitForTimeout(500)
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Gesture Job')
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: 'Gesture Job' })
 await page.waitForTimeout(700)
-await page.getByRole('link', { name: 'Plans' }).click()
+await tab(page, 'Plans').click()
 await page.waitForTimeout(300)
 await page.getByRole('button', { name: 'Add drawing' }).click()
 await page.getByPlaceholder('e.g. HC-001').fill('HC-001')
@@ -39,10 +39,10 @@ await page.locator('input[type=file]').setInputFiles(PLAN)
 await page.waitForTimeout(1400)
 await page.getByRole('button', { name: 'Save drawing' }).click()
 await page.waitForTimeout(700)
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(400)
 await page.getByRole('button', { name: /ITP register/ }).click()
-await page.getByPlaceholder(/Search the 42/).fill('Inground Sanitary')
+await page.getByPlaceholder(/Search the \d+/).fill('Inground Sanitary')
 await page.waitForTimeout(300)
 await page.locator('.listitem').first().click()
 await page.waitForTimeout(400)

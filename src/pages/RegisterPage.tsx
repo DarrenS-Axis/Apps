@@ -63,7 +63,7 @@ export function RegisterPage() {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={tab === 'raised' ? 'Search raised ITPs by number, title or area' : 'Search the 42 hydraulic ITPs'}
+          placeholder={tab === 'raised' ? 'Search raised ITPs by number, title or area' : `Search the ${TEMPLATES.length} Controldoc ITPs`}
         />
       </div>
 
@@ -124,7 +124,7 @@ export function RegisterPage() {
                           <span className="chip">{t.items.length} items</span>
                           {counts.H ? <span className="chip chip--hold">{counts.H} hold</span> : null}
                           {counts.W ? <span className="chip chip--witness">{counts.W} witness</span> : null}
-                          {counts.S ? <span className="chip chip--surv">{counts.S} surv</span> : null}
+                          {counts.M ? <span className="chip chip--surv">{counts.M} monitor</span> : null}
                         </span>
                       </span>
                     </button>

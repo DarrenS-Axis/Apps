@@ -1,6 +1,7 @@
 // Checks the path plans actually arrive by: a PDF out of SharePoint / OneDrive,
 // picked through the OS file browser, rendered on-device and pinned.
 import { chromium } from 'playwright'
+import { createProject, onboard, openPhotos, tab } from './helpers.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -28,13 +29,12 @@ const shot = async (n) => page.screenshot({ path: path.join(OUT, `${n}.png`), fu
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
 await page.waitForTimeout(500)
 
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Plan Import Job')
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: 'Plan Import Job' })
 await page.waitForTimeout(700)
 
 // Add a drawing from a PDF.
-await page.getByRole('link', { name: 'Plans' }).click()
+await tab(page, 'Plans').click()
 await page.waitForTimeout(400)
 await page.getByRole('button', { name: 'Add drawing' }).click()
 await page.waitForTimeout(300)
@@ -77,10 +77,10 @@ console.log('drawings in register:', cards)
 if (cards !== 1) errors.push(`Expected 1 drawing in the register, got ${cards}`)
 
 // The imported plan must be usable for pinning, which is the whole point.
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(400)
 await page.getByRole('button', { name: /ITP register/ }).click()
-await page.getByPlaceholder(/Search the 42/).fill('Inground Sanitary')
+await page.getByPlaceholder(/Search the \d+/).fill('Inground Sanitary')
 await page.waitForTimeout(300)
 await page.locator('.listitem').first().click()
 await page.waitForTimeout(400)

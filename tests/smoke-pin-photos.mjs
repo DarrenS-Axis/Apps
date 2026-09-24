@@ -1,6 +1,7 @@
 // Photos taken at a pin: capture from the pin, see the count on the plan, move
 // a photo onto a pin after the fact, and keep the evidence when the pin goes.
 import { chromium } from 'playwright'
+import { createProject, onboard, openPhotos, tab } from './helpers.mjs'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -29,12 +30,11 @@ const shot = async (n) => page.screenshot({ path: path.join(OUT, `${n}.png`), fu
 await page.goto(`${BASE}/`, { waitUntil: 'networkidle' })
 await page.waitForTimeout(500)
 
-await page.getByRole('button', { name: 'New job' }).click()
-await page.getByPlaceholder('e.g. Minus 1 — Adelaide').fill('Pin Photo Job')
-await page.getByRole('button', { name: 'Create job' }).click()
+await onboard(page)
+await createProject(page, { name: 'Pin Photo Job' })
 await page.waitForTimeout(700)
 
-await page.getByRole('link', { name: 'Plans' }).click()
+await tab(page, 'Plans').click()
 await page.waitForTimeout(300)
 await page.getByRole('button', { name: 'Add drawing' }).click()
 await page.getByPlaceholder('e.g. HC-001').fill('HC-001')
@@ -43,10 +43,10 @@ await page.waitForTimeout(1200)
 await page.getByRole('button', { name: 'Save drawing' }).click()
 await page.waitForTimeout(700)
 
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(400)
 await page.getByRole('button', { name: /ITP register/ }).click()
-await page.getByPlaceholder(/Search the 42/).fill('Inground Sanitary')
+await page.getByPlaceholder(/Search the \d+/).fill('Inground Sanitary')
 await page.waitForTimeout(300)
 await page.locator('.listitem').first().click()
 await page.waitForTimeout(400)
@@ -115,7 +115,7 @@ const itemPhotos = await page.locator('.itpitem .photo').count()
 console.log('photos on schedule item 1.0:', itemPhotos)
 if (itemPhotos !== 1) errors.push(`Expected 1 photo on the item, got ${itemPhotos}`)
 
-await page.getByRole('link', { name: 'Photos' }).click()
+await openPhotos(page)
 await page.waitForTimeout(900)
 const unassigned = page.locator('.photo').filter({ hasNotText: '📍' })
 await unassigned.first().click()
@@ -132,7 +132,7 @@ await page.waitForTimeout(1000)
 await page.locator('.lightbox__bar .iconbtn').click()
 await page.waitForTimeout(600)
 
-await page.getByRole('link', { name: 'ITPs' }).click()
+await tab(page, 'Controldoc').click()
 await page.waitForTimeout(500)
 await page.locator('.listitem').first().click()
 await page.waitForTimeout(700)
@@ -159,7 +159,7 @@ await page.getByRole('button', { name: /Tap again to remove/ }).click()
 await page.waitForTimeout(1000)
 await shot('05-pin-removed')
 
-await page.getByRole('link', { name: 'Photos' }).click()
+await openPhotos(page)
 await page.waitForTimeout(900)
 const survivingPhotos = await page.locator('.photo').count()
 console.log('photos still in the record after removing the pin:', survivingPhotos)

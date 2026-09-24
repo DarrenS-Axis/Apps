@@ -1,31 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteProject, exportBackup, updateProject } from '../data/db'
-import { useDrawings, useItps, useProject } from '../data/store'
-import { db } from '../data/db'
-import { useLive } from '../data/store'
-import {
-  ConfirmButton,
-  Empty,
-  Field,
-  IconDownload,
-  IconList,
-  IconPdf,
-  IconPlus,
-  IconTrash,
-  Sheet,
-  Toast,
-  useToast,
-} from '../components/ui'
-import { deriveStatus, downloadBlob, itpProgress, relativeTime, slug, statusChipClass } from '../lib/format'
+import { db, deleteProject, exportBackup, updateProject } from '../data/db'
+import { useBusinessUnit, useBusinessUnits, useDefects, useDrawings, useItps, useLive, usePenetrations, useProject } from '../data/store'
+import { ConfirmButton, Empty, Field, IconDownload, IconList, IconPdf, IconPlan, IconTrash, Sheet, Toast, useToast } from '../components/ui'
+import { deriveStatus, downloadBlob, itpProgress, slug } from '../lib/format'
 import { processLogo } from '../lib/images'
 import { exportRegisterPdf } from '../lib/pdf'
-import { ITP_STATUS_LABEL } from '../data/types'
+import { aud, controldocSummary, firedocSummary, reviewdocTotals } from '../lib/reporting'
+import { MODULE_LABEL, type ModuleKey } from '../data/types'
 
+/** The project hub: the three modules with live numbers, plans and photos. */
 export function ProjectPage() {
   const { projectId } = useParams()
   const project = useProject(projectId)
+  const unit = useBusinessUnit(project?.businessUnitId)
   const itps = useItps(projectId)
+  const pens = usePenetrations(projectId)
+  const defects = useDefects(projectId)
   const drawings = useDrawings(projectId)
   const navigate = useNavigate()
   const [editing, setEditing] = useState(false)
@@ -34,48 +25,25 @@ export function ProjectPage() {
   const photoCount = useLive(
     async () => {
       if (!projectId) return 0
-      const ids = new Set((await db.itps.where('projectId').equals(projectId).toArray()).map((i) => i.id))
-      return (await db.photos.toArray()).filter((p) => ids.has(p.itpId)).length
+      const itpIds = new Set((await db.itps.where('projectId').equals(projectId).primaryKeys()) as string[])
+      return (await db.photos.toArray()).filter((p) => p.projectId === projectId || itpIds.has(p.itpId)).length
     },
     [projectId],
     0,
   )
 
-  const stats = useMemo(() => {
-    let holds = 0
-    let witness = 0
-    let complete = 0
-    let signedItems = 0
-    let totalItems = 0
-    for (const itp of itps) {
-      const p = itpProgress(itp)
-      holds += p.openHolds.length
-      witness += p.openWitness.length
-      signedItems += p.signed
-      totalItems += p.applicable
-      if (deriveStatus(itp) === 'complete' || itp.status === 'closed') complete += 1
-    }
-    return {
-      holds,
-      witness,
-      complete,
-      percent: totalItems === 0 ? 0 : Math.round((signedItems / totalItems) * 100),
-    }
-  }, [itps])
+  const control = useMemo(() => controldocSummary(itps), [itps])
+  const holds = useMemo(() => itps.reduce((n, i) => n + itpProgress(i).openHolds.length, 0), [itps])
+  const fire = useMemo(() => firedocSummary(pens), [pens])
+  const review = useMemo(() => reviewdocTotals(defects), [defects])
+  const openDefects = defects.filter((d) => d.status !== 'closed').length
 
-  const recent = useMemo(() => [...itps].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6), [itps])
-
-  if (!project) {
-    return <Empty title="Job not found" hint="It may have been deleted on this device." />
-  }
+  if (!project) return <Empty title="Project not found" hint="It may have been deleted on this device." />
 
   const exportJob = async () => {
     const backup = await exportBackup(project.id)
-    downloadBlob(
-      new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }),
-      `${slug(project.name)}_ITP_backup_${new Date().toISOString().slice(0, 10)}.json`,
-    )
-    showToast('Job backup downloaded')
+    downloadBlob(new Blob([JSON.stringify(backup)], { type: 'application/json' }), `${slug(project.name)}_QA_backup_${new Date().toISOString().slice(0, 10)}.json`)
+    showToast('Project backup downloaded')
   }
 
   return (
@@ -86,167 +54,143 @@ export function ProjectPage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <h2 style={{ fontSize: 18 }}>{project.name}</h2>
               <p className="muted small" style={{ margin: '4px 0 0' }}>
-                {[project.projectNumber, project.stage, project.address].filter(Boolean).join(' · ') || 'No job details yet'}
+                {[project.projectNumber, project.client, project.address].filter(Boolean).join(' · ') || 'No project details yet'}
+              </p>
+              <p className="muted small" style={{ margin: '2px 0 0' }}>
+                {unit ? `${unit.name} · ${unit.entity}` : project.state}
               </p>
             </div>
             <button className="btn btn--ghost btn--sm" onClick={() => setEditing(true)} type="button">
               Edit
             </button>
           </div>
-
-          <div className="hr" />
-
-          <div className="row" style={{ gap: 18 }}>
-            <Stat value={String(itps.length)} label="ITPs raised" />
-            <Stat value={String(stats.complete)} label="Complete" />
-            <Stat value={String(stats.holds)} label="Open holds" tone={stats.holds ? 'hold' : undefined} />
-            <Stat value={String(stats.witness)} label="Open witness" />
-            <Stat value={String(drawings.length)} label="Drawings" />
-            <Stat value={String(photoCount)} label="Photos" />
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <div className="row small muted" style={{ marginBottom: 5 }}>
-              <span>Overall inspection progress</span>
-              <span className="spacer" />
-              <span className="mono">{stats.percent}%</span>
-            </div>
-            <div className={`bar${stats.percent === 100 ? ' bar--ok' : ''}`}>
-              <i style={{ width: `${stats.percent}%` }} />
-            </div>
-          </div>
         </div>
       </div>
 
-      <div className="section-title">
-        <h2>Recent ITPs</h2>
-        <span className="spacer" />
-        <Link className="btn btn--sm" to={`/project/${project.id}/itps`}>
-          <IconPlus />
-          Raise ITP
+      <div className="modules">
+        {project.modules.controldoc ? (
+          <Link className="module" to={`/project/${project.id}/itps`}>
+            <span className="module__name">Controldoc</span>
+            <span className="module__big">{itps.length}</span>
+            <span className="module__sub">ITPs raised</span>
+            <span className="module__facts">
+              <span>{control.completed_by_site} completed by site</span>
+              <span>{control.reviewed_approved} approved</span>
+              <span className={holds ? 'is-hold' : undefined}>{holds} open hold points</span>
+            </span>
+          </Link>
+        ) : null}
+        {project.modules.firedoc ? (
+          <Link className="module" to={`/project/${project.id}/firedoc`}>
+            <span className="module__name">Firedoc</span>
+            <span className="module__big">{fire.total}</span>
+            <span className="module__sub">penetrations</span>
+            <span className="module__facts">
+              <span>{fire.completed_by_site} completed by site</span>
+              <span>{fire.reviewed_approved} approved</span>
+              <span className={fire.defected ? 'is-hold' : undefined}>{fire.defected} defected · {fire.outstanding} outstanding</span>
+            </span>
+          </Link>
+        ) : null}
+        {project.modules.reviewdoc ? (
+          <Link className="module" to={`/project/${project.id}/reviewdoc`}>
+            <span className="module__name">Reviewdoc</span>
+            <span className="module__big">{openDefects}</span>
+            <span className="module__sub">open defects</span>
+            <span className="module__facts">
+              <span>{review.qty} raised · {aud(review.value)}</span>
+              <span>{defects.filter((d) => d.status === 'rectified').length} awaiting review</span>
+            </span>
+          </Link>
+        ) : null}
+        <Link className="module module--quiet" to={`/project/${project.id}/drawings`}>
+          <span className="module__name">
+            <IconPlan /> Plans
+          </span>
+          <span className="module__big">{drawings.length}</span>
+          <span className="module__sub">drawings</span>
+        </Link>
+        <Link className="module module--quiet" to={`/project/${project.id}/photos`}>
+          <span className="module__name">Photos</span>
+          <span className="module__big">{photoCount}</span>
+          <span className="module__sub">on record</span>
         </Link>
       </div>
 
-      <div className="card card__body--flush">
-        {recent.length === 0 ? (
-          <Empty
-            icon={<IconList />}
-            title="No ITPs raised yet"
-            hint="Raise one from the register of 42 hydraulic ITP templates."
-          />
-        ) : (
-          recent.map((itp) => {
-            const p = itpProgress(itp)
-            const status = deriveStatus(itp)
-            return (
-              <Link key={itp.id} className="listitem" to={`/project/${project.id}/itp/${itp.id}`}>
-                <span className="listitem__num">{itp.templateCode}</span>
-                <span className="listitem__main">
-                  <strong>{itp.title}</strong>
-                  <span>
-                    {itp.area || 'No area set'} · updated {relativeTime(itp.updatedAt)}
-                  </span>
-                  <span className="row" style={{ marginTop: 6, gap: 6 }}>
-                    <span className={`chip ${statusChipClass(status)}`}>{ITP_STATUS_LABEL[status]}</span>
-                    {p.openHolds.length ? <span className="chip chip--hold">{p.openHolds.length} hold</span> : null}
-                    <span className="chip">{p.percent}%</span>
-                  </span>
-                </span>
-              </Link>
-            )
-          })
-        )}
-      </div>
+      {project.modules.controldoc && itps.length ? (
+        <>
+          <div className="section-title">
+            <h2>Recent ITPs</h2>
+            <span className="spacer" />
+            <Link className="btn btn--ghost btn--sm" to={`/project/${project.id}/itps`}>
+              <IconList />
+              All
+            </Link>
+          </div>
+          <div className="card card__body--flush">
+            {[...itps]
+              .sort((a, b) => b.updatedAt - a.updatedAt)
+              .slice(0, 5)
+              .map((itp) => {
+                const p = itpProgress(itp)
+                return (
+                  <button key={itp.id} className="listitem" type="button" onClick={() => navigate(`/project/${project.id}/itp/${itp.id}`)}>
+                    <span className="listitem__num">{itp.itpNumber}</span>
+                    <span className="listitem__main">
+                      <strong>{itp.title}</strong>
+                      <span>
+                        {itp.itcNumber ? `ITC ${itp.itcNumber} · ` : ''}
+                        {itp.area} · {p.percent}% · {deriveStatus(itp).replace(/_/g, ' ')}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+          </div>
+        </>
+      ) : null}
 
       <div className="section-title">
-        <h2>Job data</h2>
+        <h2>Project data</h2>
       </div>
       <div className="card">
         <div className="card__body">
-          <p className="small muted" style={{ marginTop: 0 }}>
-            Everything is stored on this device. Export a backup to move the job to another device or hand it to the document
-            controller.
-          </p>
-          <div className="row">
-            <button
-              className="btn btn--ghost btn--sm"
-              type="button"
-              disabled={itps.length === 0}
-              onClick={() => {
-                downloadBlob(
-                  exportRegisterPdf(project, [...itps].sort((a, b) => a.itpNumber.localeCompare(b.itpNumber))),
-                  `${slug(project.name)}_ITP_register.pdf`,
-                )
-                showToast('Register exported')
-              }}
-            >
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <button className="btn btn--ghost btn--sm" type="button" disabled={itps.length === 0} onClick={() => { downloadBlob(exportRegisterPdf(project, itps), `${slug(project.name)}_ITP_register.pdf`); showToast('Register exported') }}>
               <IconPdf />
-              Export ITP register
+              ITP register
             </button>
-            <button className="btn btn--ghost btn--sm" onClick={exportJob} type="button">
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => void exportJob()}>
               <IconDownload />
-              Export job backup
+              Export project backup
             </button>
-            <span className="spacer" />
             <ConfirmButton
               label={
                 <>
                   <IconTrash />
-                  Delete job
+                  Delete project
                 </>
               }
-              confirmLabel="Tap again to delete job and all its records"
+              confirmLabel="Delete everything on this project"
               onConfirm={async () => {
                 await deleteProject(project.id)
-                navigate('/projects')
+                navigate('/state')
               }}
             />
           </div>
         </div>
       </div>
 
-      {editing ? <EditProject projectId={project.id} onClose={() => setEditing(false)} onSaved={() => showToast('Job updated')} /> : null}
+      {editing ? <EditProject projectId={project.id} onClose={() => setEditing(false)} onSaved={() => showToast('Project updated')} /> : null}
       <Toast message={toast} />
     </>
   )
 }
 
-function Stat({ value, label, tone }: { value: string; label: string; tone?: 'hold' }) {
-  return (
-    <div>
-      <div
-        style={{
-          fontSize: 22,
-          fontWeight: 700,
-          fontVariantNumeric: 'tabular-nums',
-          color: tone === 'hold' && value !== '0' ? 'var(--hold)' : 'var(--ink)',
-        }}
-      >
-        {value}
-      </div>
-      <div className="small muted">{label}</div>
-    </div>
-  )
-}
-
-/**
- * Attaches a company logo. It is printed on every exported ITP, so it is worth
- * the file picker rather than asking anyone to paste a data URL.
- */
-function LogoField({
-  label,
-  hint,
-  value,
-  onChange,
-}: {
-  label: string
-  hint: string
-  value?: string
-  onChange: (value: string | undefined) => void
-}) {
+/** Attaches a company logo; it is printed on every exported document. */
+function LogoField({ label, hint, value, onChange }: { label: string; hint: string; value?: string; onChange: (value: string | undefined) => void }) {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [error, setError] = useState('')
-
   const pick = async (files: FileList | null) => {
     const file = files?.[0]
     if (!file) return
@@ -259,20 +203,13 @@ function LogoField({
       if (inputRef.current) inputRef.current.value = ''
     }
   }
-
   return (
     <div>
       <span className="field-label">{label}</span>
       <p className="small muted" style={{ margin: '0 0 8px' }}>
         {hint}
       </p>
-      <input
-        ref={inputRef}
-        className="visually-hidden"
-        type="file"
-        accept="image/*"
-        onChange={(e) => void pick(e.target.files)}
-      />
+      <input ref={inputRef} className="visually-hidden" type="file" accept="image/*" onChange={(e) => void pick(e.target.files)} />
       <div className="row" style={{ alignItems: 'center' }}>
         {value ? (
           <span className="logoshow">
@@ -302,22 +239,29 @@ function LogoField({
 
 function EditProject({ projectId, onClose, onSaved }: { projectId: string; onClose: () => void; onSaved: () => void }) {
   const project = useProject(projectId)
+  const units = useBusinessUnits()
   const [form, setForm] = useState(project)
-
   useEffect(() => {
     if (project && !form) setForm(project)
   }, [project, form])
-
   if (!form) return null
-
   return (
-    <Sheet title="Job details" onClose={onClose}>
+    <Sheet title="Project details" onClose={onClose}>
       <div className="stack">
-        <Field label="Job name">
+        <Field label="Project name">
           <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </Field>
+        <Field label="Business unit">
+          <select value={form.businessUnitId} onChange={(e) => setForm({ ...form, businessUnitId: e.target.value })}>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.state} · {u.name}
+              </option>
+            ))}
+          </select>
+        </Field>
         <div className="field-grid">
-          <Field label="Job number">
+          <Field label="Project no.">
             <input type="text" value={form.projectNumber} onChange={(e) => setForm({ ...form, projectNumber: e.target.value })} />
           </Field>
           <Field label="Stage / level">
@@ -328,40 +272,40 @@ function EditProject({ projectId, onClose, onSaved }: { projectId: string; onClo
           <Field label="Client / head contractor">
             <input type="text" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
           </Field>
-          <Field label="Your company">
+          <Field label="Axis entity">
             <input type="text" value={form.contractor} onChange={(e) => setForm({ ...form, contractor: e.target.value })} />
           </Field>
         </div>
         <div className="field-grid">
-          <Field label="Approved for use by">
+          <Field label="ITPs approved for use by">
             <input type="text" value={form.approvedBy} onChange={(e) => setForm({ ...form, approvedBy: e.target.value })} />
           </Field>
           <Field label="Role">
-            <input
-              type="text"
-              value={form.approvedByRole}
-              onChange={(e) => setForm({ ...form, approvedByRole: e.target.value })}
-            />
+            <input type="text" value={form.approvedByRole} onChange={(e) => setForm({ ...form, approvedByRole: e.target.value })} />
           </Field>
         </div>
-        <div className="field-grid">
-          <LogoField
-            label="Head contractor logo"
-            hint="Printed top-left on every exported ITP, above the plan title block."
-            value={form.clientLogo}
-            onChange={(clientLogo) => setForm({ ...form, clientLogo })}
-          />
-          <LogoField
-            label="Your company logo"
-            hint="Printed in the contractor cell of the ITP header."
-            value={form.contractorLogo}
-            onChange={(contractorLogo) => setForm({ ...form, contractorLogo })}
-          />
-        </div>
-        <Field label="Site address">
+        <Field label="Project address">
           <input type="text" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
         </Field>
-        <Field label="Document marking" hint="Printed at the head and foot of every exported page, e.g. OFFICIAL.">
+        <Field label="Client document reference scheme" hint="{n} becomes the ITC number, e.g. SMCSWSPS-AXP-OSN-BS-ITP-{n}.">
+          <input type="text" value={form.locRefScheme ?? ''} onChange={(e) => setForm({ ...form, locRefScheme: e.target.value })} />
+        </Field>
+        <div>
+          <span className="field-label">Modules</span>
+          <div className="row" style={{ gap: 14 }}>
+            {(Object.keys(MODULE_LABEL) as ModuleKey[]).map((m) => (
+              <label key={m} className="row" style={{ gap: 8 }}>
+                <input type="checkbox" style={{ width: 20, height: 20, minHeight: 0 }} checked={form.modules[m]} onChange={(e) => setForm({ ...form, modules: { ...form.modules, [m]: e.target.checked } })} />
+                <span>{MODULE_LABEL[m]}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="field-grid">
+          <LogoField label="Head contractor logo" hint="Printed at the head of every exported ITP." value={form.clientLogo} onChange={(clientLogo) => setForm({ ...form, clientLogo })} />
+          <LogoField label="Axis logo" hint="Printed in the contractor cell and on the QA report." value={form.contractorLogo} onChange={(contractorLogo) => setForm({ ...form, contractorLogo })} />
+        </div>
+        <Field label="Document marking" hint="Printed at the head and foot of every exported page, e.g. OFFICIAL. Leave blank for none.">
           <input type="text" value={form.marking} onChange={(e) => setForm({ ...form, marking: e.target.value })} />
         </Field>
         <div className="row row--end">

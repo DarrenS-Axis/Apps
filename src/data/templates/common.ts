@@ -1,4 +1,5 @@
-import type { ItpTemplate, TemplateGroup, TemplateItem, TemplateMaterial } from '../types'
+import type { ItpTemplate, TemplateGroup, TemplateItem, TemplateMaterial, TestSpec } from '../types'
+import { libraryEntry } from '../libraries/itpLibrary'
 
 /** A schedule row before it has been given its printed item number. */
 export type Row = Omit<TemplateItem, 'no'>
@@ -6,8 +7,44 @@ export type Row = Omit<TemplateItem, 'no'>
 export const row = (r: Row): Row => r
 
 /**
- * Builds a template, numbering the schedule 1.0, 2.0, 3.0 … in the same style
- * as the paper form.
+ * Works out the section 3.0 test record from the schedule itself, so the
+ * template author only has to state the test once — on the row that carries
+ * it — and the record form follows.
+ */
+function inferTest(rows: Row[]): TestSpec {
+  const text = (r: Row) => `${r.installation} ${r.acceptance}`
+  const pressure = rows.find((r) => /hydrostatic pressure test|pressure test/i.test(r.installation))
+  if (pressure) {
+    const kpa = /(\d{3,4})\s*kPa/i.exec(text(pressure))
+    const min = /(\d+)\s*minutes/i.exec(text(pressure))
+    const std = /in accordance with ([^.]+?)(?: and| section|\.|$)/i.exec(pressure.acceptance)
+    return {
+      type: 'PRESSURE TEST',
+      standard: std?.[1]?.trim() ?? 'AS/NZS 3500.1:2018 section 18.3.1',
+      pressureKpa: kpa ? Number(kpa[1]) : undefined,
+      minutes: min ? Number(min[1]) : undefined,
+    }
+  }
+  const air = rows.find((r) => /air test/i.test(r.installation))
+  if (air) {
+    const kpa = /(\d{2,3})\s*kPa/i.exec(text(air))
+    const min = /(\d+)\s*minutes/i.exec(text(air))
+    return { type: 'AIR TEST', standard: 'AS/NZS 3500.2:2018 section 15.2', pressureKpa: kpa ? Number(kpa[1]) : undefined, minutes: min ? Number(min[1]) : undefined }
+  }
+  const water = rows.find((r) => /hydrostatic test|water test/i.test(r.installation))
+  if (water) {
+    const min = /(\d+)\s*minutes/i.exec(text(water))
+    return { type: 'WATER TEST', standard: 'AS/NZS 3500.2:2018 section 15.2', minutes: min ? Number(min[1]) : undefined }
+  }
+  const flow = rows.find((r) => /flow test|commission|operate the pump/i.test(r.installation))
+  if (flow) return { type: 'COMMISSIONING TEST', standard: 'Manufacturer and hydraulic specification' }
+  return { type: 'VISUAL', standard: 'Hydraulic specification' }
+}
+
+/**
+ * Builds a template, numbering the checklist 1.0, 2.0, 3.0 … the way the
+ * Controldoc form prints it, and attaching the library's revision and
+ * photograph minimums for the code.
  */
 export function mk(args: {
   code: string
@@ -17,7 +54,10 @@ export function mk(args: {
   standards: string[]
   materials: TemplateMaterial[]
   items: Row[]
+  test?: Partial<TestSpec>
 }): ItpTemplate {
+  const lib = libraryEntry(args.code)
+  const inferred = inferTest(args.items)
   return {
     code: args.code,
     title: args.title,
@@ -26,6 +66,11 @@ export function mk(args: {
     standards: args.standards,
     materials: args.materials,
     items: args.items.map((r, i) => ({ ...r, no: `${i + 1}.0` })),
+    test: { ...inferred, ...args.test },
+    revision: lib?.revision ?? '2',
+    installationPhotos: lib?.installationPhotos ?? 2,
+    testingPhotos: lib?.testingPhotos ?? 2,
+    thirdPartyPages: lib?.thirdPartyPages ?? 0,
   }
 }
 
@@ -134,7 +179,7 @@ export const markerTape = (service: string, colour: string): Row => ({
   photoHint: 'Marker tape laid over pipework in trench',
 })
 
-export const hydrostaticTest = (opts?: { minutes?: number; point?: 'W' | 'H' | 'X' | 'S'; std?: string }): Row => ({
+export const hydrostaticTest = (opts?: { minutes?: number; point?: 'W' | 'H' | 'X' | 'M'; std?: string }): Row => ({
   installation: `Hydrostatic test with water to finished ground level, minimum test duration of ${opts?.minutes ?? 15} minutes.`,
   acceptance: `${opts?.minutes ?? 15} minutes or greater with no loss of water, in accordance with ${
     opts?.std ?? "AS/NZS 3500.2:2021 Section 15 'Testing'"
@@ -207,7 +252,7 @@ export const penetrations = (): Row => ({
   installation: 'Check penetrations through fire and acoustic rated elements are sealed with a tested and approved system.',
   acceptance:
     'Fire collars / wraps installed in accordance with AS 4072.1 and the tested system, matching the FRL of the element penetrated. Acoustic seals in accordance with the acoustic report.',
-  point: 'S',
+  point: 'M',
   releasedBy: 'Fire engineer / Building surveyor',
   photoHint: 'Installed collar with product label visible',
 })
@@ -284,7 +329,7 @@ export const weldJoints = (method: string): Row => ({
   installation: `Check jointing of pipework (${method}). Confirm operator qualification, machine calibration and that joint records are retained.`,
   acceptance:
     "In accordance with AS/NZS 2033 (PE), the pipe manufacturer's jointing procedure and the hydraulic specification. Joint log to be provided.",
-  point: 'S',
+  point: 'M',
   releasedBy: 'Superintendent',
   photoHint: 'Completed joint with fusion record / weld bead',
 })
