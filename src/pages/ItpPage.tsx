@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { deleteItp, deletePin, duplicateItp, updateItp, uid } from '../data/db'
+import { deleteItp, deletePin, duplicateItp, locateItpIfMissing, locatePin, updateItp, uid, type Located } from '../data/db'
 import { useDrawings, useItp, usePhotos, usePhotosByItem, useProject, useSettings } from '../data/store'
-import type { Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour, Settings, TestRecord } from '../data/types'
+import type { Drawing, Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour, Settings, TestRecord } from '../data/types'
 import { POINT_TYPES, ITP_STATUS_LABEL, REGION_COLOURS } from '../data/types'
 import { getTemplate } from '../data/templates'
 import {
@@ -28,10 +28,21 @@ import {
 } from '../components/ui'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { PlanViewer, type PlanMode } from '../components/PlanViewer'
+import { LocationLine, PlanImporter, type Geo } from '../components/Locate'
+import { currentPosition } from '../lib/images'
 import { blockingHoldFor, deriveStatus, formatDate, formatDateTime, itpProgress, slug, statusChipClass, todayIso } from '../lib/format'
 import { exportItpPdf } from '../lib/pdf'
 
 type Tab = 'schedule' | 'materials' | 'test' | 'plans' | 'signoff'
+
+/** The device's position now, or null — never throws, never blocks longer than the timeout. */
+async function whereAmI(timeout = 12000): Promise<Located | null> {
+  const pos = await currentPosition(timeout)
+  return pos ? { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, locatedAt: Date.now() } : null
+}
+
+const geoOf = (r: { lat?: number; lng?: number; accuracy?: number; locatedAt?: number }, fallback: number): Geo | null =>
+  r.lat !== undefined && r.lng !== undefined ? { lat: r.lat, lng: r.lng, accuracy: r.accuracy, locatedAt: r.locatedAt ?? fallback } : null
 
 export function ItpPage() {
   const { projectId, itpId } = useParams()
@@ -72,6 +83,10 @@ export function ItpPage() {
       signedBy: settings.userName,
     })
     showToast(`Item ${item.no} signed`)
+    // Signing is done where the work is, so this is where the ITP was inspected.
+    if (itp.lat === undefined && settings.captureGps) {
+      void whereAmI().then((where) => where && locateItpIfMissing(itp.id, where))
+    }
   }
 
   const exportPdf = async () => {
@@ -145,6 +160,10 @@ export function ItpPage() {
             <div className={`bar${progress.percent === 100 ? ' bar--ok' : ''}`}>
               <i style={{ width: `${progress.percent}%` }} />
             </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <ItpLocation itp={itp} onToast={showToast} />
           </div>
 
           {progress.blockingHold ? (
@@ -645,6 +664,31 @@ function ReleaseSheet({
 
 /* ------------------------------------------------------------- materials */
 
+/** Where the ITP was inspected, with refresh / clear / maps. */
+function ItpLocation({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }) {
+  const [locating, setLocating] = useState(false)
+  const geo = geoOf(itp, itp.updatedAt)
+  return (
+    <div>
+      <span className="field-label">Inspected at</span>
+      <LocationLine
+        geo={geo}
+        state={locating ? 'locating' : 'idle'}
+        onLocate={async () => {
+          setLocating(true)
+          const where = await whereAmI()
+          setLocating(false)
+          if (!where) return onToast('Location unavailable')
+          await updateItp(itp.id, where)
+          onToast('Location updated')
+        }}
+        onClear={geo ? () => void updateItp(itp.id, { lat: undefined, lng: undefined, accuracy: undefined, locatedAt: undefined }) : undefined}
+      />
+      {!geo ? <span className="small muted">Recorded automatically when the first step is signed on site.</span> : null}
+    </div>
+  )
+}
+
 /**
  * Section 3.0 of the Controldoc form — the same rows on every ITP, filled in
  * on the day of the test, with the standard's minimum criteria at the top.
@@ -851,6 +895,16 @@ function PlansTab({
   } | null>(null)
   const [selectedPin, setSelectedPin] = useState<PlanPin | null>(null)
   const [selectedRegion, setSelectedRegion] = useState<PlanRegion | null>(null)
+  const [movingPin, setMovingPin] = useState<PlanPin | null>(null)
+  const [importing, setImporting] = useState(false)
+
+  /** A plan imported from here is linked to this ITP and opened straight away. */
+  const onImported = async (d: Drawing) => {
+    setImporting(false)
+    if (!itp.drawingIds.includes(d.id)) await updateItp(itp.id, { drawingIds: [...itp.drawingIds, d.id] })
+    setActiveId(d.id)
+    onToast(`${d.number} linked to this ITP`)
+  }
 
   const active = linked.find((d) => d.id === activeId) ?? linked[0]
   const pins = itp.pins.filter((p) => p.drawingId === active?.id)
@@ -883,6 +937,16 @@ function PlansTab({
    */
   const dropPin = async (x: number, y: number) => {
     if (!active) return
+    if (movingPin) {
+      const moved = { ...movingPin, drawingId: active.id, x, y }
+      await savePins(itp.pins.map((p) => (p.id === movingPin.id ? moved : p)))
+      setMovingPin(null)
+      setMode('view')
+      setSelectedPin(moved)
+      onToast(`Pin ${moved.label} moved`)
+      if (settings.captureGps) void whereAmI().then((where) => where && locatePin(itp.id, moved.id, where))
+      return
+    }
     const pin: PlanPin = {
       id: uid('pin'),
       drawingId: active.id,
@@ -895,21 +959,35 @@ function PlansTab({
     setMode('view')
     setSelectedPin(pin)
     onToast('Pin dropped — add a note or photos')
+    // Stamped once the fix arrives, against the ITP as it stands then. One fix
+    // serves the pin and, if the ITP has none yet, the ITP.
+    if (settings.captureGps) {
+      void whereAmI().then(async (where) => {
+        if (!where) return
+        await locatePin(itp.id, pin.id, where)
+        await locateItpIfMissing(itp.id, where)
+      })
+    }
   }
 
   if (drawings.length === 0) {
-    return (
+    return importing ? (
+      <PlanImporter projectId={projectId} onCancel={() => setImporting(false)} onImported={(d) => void onImported(d)} />
+    ) : (
       <div className="card">
         <div className="card__body">
           <Empty
             icon={<IconPin />}
-            title="No drawings on this job"
-            hint="Add drawings on the Plans tab, then link them here to highlight the section this ITP covers."
+            title="No drawings on this project yet"
+            hint="Import the plan this ITP is inspected against — from this device, SharePoint or OneDrive — then pin and highlight the work on it."
           />
           <div className="row row--end">
-            <Link className="btn btn--sm" to={`/project/${projectId}/drawings`}>
-              Go to Plans
+            <Link className="btn btn--ghost btn--sm" to={`/project/${projectId}/drawings`}>
+              All plans
             </Link>
+            <button className="btn btn--sm" type="button" onClick={() => setImporting(true)}>
+              Import plan
+            </button>
           </div>
         </div>
       </div>
@@ -927,7 +1005,20 @@ function PlansTab({
     <>
       <div className="card">
         <div className="card__body">
-          <span className="field-label">Drawings this ITP is inspected against</span>
+          <div className="row" style={{ alignItems: 'center', marginBottom: 6 }}>
+            <span className="field-label" style={{ marginBottom: 0 }}>
+              Drawings this ITP is inspected against
+            </span>
+            <span className="spacer" />
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImporting(!importing)}>
+              Import plan
+            </button>
+          </div>
+          {importing ? (
+            <div style={{ marginBottom: 10 }}>
+              <PlanImporter projectId={projectId} onCancel={() => setImporting(false)} onImported={(d) => void onImported(d)} />
+            </div>
+          ) : null}
           <div className="stack" style={{ gap: 6 }}>
             {drawings.map((d) => (
               <label key={d.id} className="row" style={{ gap: 8 }}>
@@ -989,6 +1080,24 @@ function PlansTab({
                 </button>
               ))}
             </div>
+
+            {movingPin ? (
+              <div className="banner banner--info" style={{ marginTop: 10 }}>
+                <div style={{ flex: 1 }}>
+                  Tap the plan where pin <strong>{movingPin.label}</strong> belongs.
+                </div>
+                <button
+                  className="btn btn--ghost btn--sm"
+                  type="button"
+                  onClick={() => {
+                    setMovingPin(null)
+                    setMode('view')
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
 
             {mode === 'highlight' || mode === 'area' ? (
               <div className="row" style={{ marginTop: 10, gap: 6 }}>
@@ -1164,6 +1273,13 @@ function PlansTab({
           onOpenPhoto={onOpenPhoto}
           onToast={onToast}
           onRemoved={() => setSelectedPin(null)}
+          onMove={(p) => {
+            setSelectedPin(null)
+            setSelectedRegion(null)
+            if (p.drawingId !== active?.id) setActiveId(p.drawingId)
+            setMovingPin(p)
+            setMode('pin')
+          }}
         />
       ) : null}
 
@@ -1272,6 +1388,7 @@ function PinDetailSheet({
   onOpenPhoto,
   onToast,
   onRemoved,
+  onMove,
 }: {
   itp: Itp
   pin: PlanPin
@@ -1281,8 +1398,11 @@ function PinDetailSheet({
   onOpenPhoto: (photo: Photo) => void
   onToast: (m: string) => void
   onRemoved: () => void
+  onMove: (pin: PlanPin) => void
 }) {
   const [label, setLabel] = useState(pin.label)
+  const [locating, setLocating] = useState(false)
+  const geo = geoOf(pin, pin.createdAt)
   const [itemNo, setItemNo] = useState(pin.itemNo ?? '')
   const [note, setNote] = useState(pin.note ?? '')
 
@@ -1334,6 +1454,33 @@ function PinDetailSheet({
             placeholder="e.g. IO at grid 12, IL 21.30"
           />
         </Field>
+
+        <div className="row" style={{ alignItems: 'center' }}>
+          <span className="small muted" style={{ flex: 1 }}>
+            Wrong spot on the plan?
+          </span>
+          <button className="btn btn--ghost btn--sm" type="button" onClick={() => onMove(pin)}>
+            <IconPin />
+            Move pin
+          </button>
+        </div>
+
+        <div>
+          <span className="field-label">Device location</span>
+          <LocationLine
+            geo={geo}
+            state={locating ? 'locating' : 'idle'}
+            onLocate={async () => {
+              setLocating(true)
+              const where = await whereAmI()
+              setLocating(false)
+              if (!where) return onToast('Location unavailable')
+              await locatePin(itp.id, pin.id, where)
+              onToast('Location updated')
+            }}
+            onClear={geo ? () => void locatePin(itp.id, pin.id, null) : undefined}
+          />
+        </div>
 
         <div>
           <span className="field-label">Photos taken here ({photos.length})</span>
@@ -1485,6 +1632,9 @@ function SignOffTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }
                     status: canComplete ? 'completed_by_site' : itp.status,
                   })
                   onToast('ITP signed off')
+                  if (itp.lat === undefined && settings.captureGps) {
+                    void whereAmI().then((where) => where && locateItpIfMissing(itp.id, where))
+                  }
                 }}
               >
                 <IconSign />

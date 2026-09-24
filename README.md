@@ -55,6 +55,11 @@ Every ITP follows the Controldoc form:
   type, times, date, pressures, equipment, loss, pass, compliance check.
 - **4.0 Attachments and photographs** — plan extracts with the covered extent highlighted
   and pins located, and the photographic record.
+- **Plans and location from inside the ITP** — import a plan on the ITP's Plans tab (from
+  the device, SharePoint or OneDrive; it is linked to the ITP as it comes in), drop pins
+  and move them later. Each pin records where the device was; the ITP records where it
+  was inspected when its first step is signed or a pin is dropped — on site, not where it
+  was raised — with refresh, clear and open-in-maps. Both print on the PDF.
 - **Axis sign-off** and the **additional sign-off** (client / superintendent), which
   moves the ITP to Reviewed & approved.
 
@@ -141,7 +146,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Eleven Playwright suites drive the production build in a real browser, including
+Twelve Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.

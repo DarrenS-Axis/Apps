@@ -266,7 +266,8 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
   y += 6
 
   // Controldoc location and reference row.
-  if (itp.locationPath || itp.locRef || itp.planRef) {
+  const gps = itp.lat !== undefined && itp.lng !== undefined ? `GPS ${formatCoords(itp.lat, itp.lng)}${itp.accuracy ? ` ±${Math.round(itp.accuracy)} m` : ''}` : ''
+  if (itp.locationPath || itp.locRef || itp.planRef || gps) {
     doc.rect(M, y, PAGE.w - M * 2, 6)
     doc.setFillColor(GREY[0], GREY[1], GREY[2])
     doc.rect(M, y, dwgLabelW, 6, 'FD')
@@ -275,7 +276,7 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
     doc.text('Location / Loc.Ref', M + 1.5, y + 4)
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(7)
-    doc.text([itp.locationPath, itp.locRef, itp.planRef].filter(Boolean).join('   ·   '), M + dwgLabelW + 2, y + 4, {
+    doc.text([itp.locationPath, itp.locRef, itp.planRef, gps].filter(Boolean).join('   ·   '), M + dwgLabelW + 2, y + 4, {
       maxWidth: PAGE.w - M * 2 - dwgLabelW - 4,
     })
     y += 6
@@ -586,7 +587,7 @@ async function drawPlanExtract(
       const count = photos.filter((ph) => ph.pinId === pin.id).length
       return `  ${pin.label}. ${pin.itemNo ? `Item ${pin.itemNo} — ` : ''}${pin.note || 'Location marked'}${
         count ? ` (${count} photo${count > 1 ? 's' : ''})` : ''
-      }`
+      }${pin.lat !== undefined && pin.lng !== undefined ? ` · GPS ${formatCoords(pin.lat, pin.lng)}` : ''}`
     }),
   ]
 

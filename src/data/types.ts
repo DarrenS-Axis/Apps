@@ -216,6 +216,11 @@ export interface PlanPin {
   /** Item number this pin relates to, if any. */
   itemNo?: string
   note?: string
+  /** Where the device was when the pin was dropped or last moved. */
+  lat?: number
+  lng?: number
+  accuracy?: number
+  locatedAt?: number
   createdAt: number
 }
 
@@ -512,6 +517,15 @@ export interface Itp {
   dateClosed?: string
   /** Section 2.0 step 14: "ITP Compliant with all criteria listed above". */
   compliant?: boolean | null
+  /**
+   * Where the device was when the work was inspected — taken when the first
+   * step is signed or at the Axis sign-off, whichever comes first, because
+   * ITPs are often raised in the office and signed on site.
+   */
+  lat?: number
+  lng?: number
+  accuracy?: number
+  locatedAt?: number
   title: string
   /** Location this instance covers, e.g. "Southern Driveway - Plant Room". */
   area: string

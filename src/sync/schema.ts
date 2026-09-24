@@ -71,6 +71,8 @@ export const LISTS: ListDef[] = [
       { name: 'Progress', type: 'number' },
       { name: 'OpenHolds', type: 'number' },
       { name: 'DateClosed', type: 'text' },
+      { name: 'Lat', type: 'number' },
+      { name: 'Lng', type: 'number' },
     ],
   },
   {
@@ -194,6 +196,8 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         Progress: i.progress ?? 0,
         OpenHolds: openHolds,
         DateClosed: i.dateClosed ?? '',
+        Lat: i.lat ?? null,
+        Lng: i.lng ?? null,
       })
       const attachments = (i.attachments ?? []).map((a) => {
         if (!a.data) return a

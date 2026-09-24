@@ -438,6 +438,41 @@ export async function duplicateItp(id: string, area: string): Promise<Itp> {
   return copy
 }
 
+/** A device position as stored on a record. */
+export interface Located {
+  lat: number
+  lng: number
+  accuracy?: number
+  locatedAt: number
+}
+
+/**
+ * Records where the device was on the ITP, unless it already has a
+ * position. Read-modify-write inside a transaction, because it lands a few
+ * seconds after the action that asked for it and must not overwrite edits
+ * made in between.
+ */
+export async function locateItpIfMissing(itpId: string, where: Located): Promise<void> {
+  await db.transaction('rw', db.itps, async () => {
+    const itp = await db.itps.get(itpId)
+    if (!itp || itp.lat !== undefined) return
+    await db.itps.update(itpId, { ...where, updatedAt: now() })
+  })
+}
+
+/** Stamps a position onto one pin, against the ITP as it stands now. */
+export async function locatePin(itpId: string, pinId: string, where: Located | null): Promise<void> {
+  await db.transaction('rw', db.itps, async () => {
+    const itp = await db.itps.get(itpId)
+    if (!itp) return
+    const blank = { lat: undefined, lng: undefined, accuracy: undefined, locatedAt: undefined }
+    await db.itps.update(itpId, {
+      pins: itp.pins.map((p) => (p.id === pinId ? { ...p, ...(where ?? blank) } : p)),
+      updatedAt: now(),
+    })
+  })
+}
+
 /**
  * Removes a pin from an ITP and detaches any photos taken at it. Photos are
  * evidence in their own right, so they are kept — they simply stop claiming a

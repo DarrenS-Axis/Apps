@@ -1001,6 +1001,14 @@ textarea:focus {
   border: 1px solid;
 }
 
+.banner > svg {
+  /* Without a size an inline SVG stretches to fill the banner. */
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+}
+
 .banner--warn {
   background: var(--warn-soft);
   border-color: #fcd34d;
