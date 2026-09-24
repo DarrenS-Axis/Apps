@@ -4,11 +4,13 @@ import { createDrawing, createPenetration, deletePenetration, importPenetrations
 import { useDrawings, usePenetration, usePenetrations, useProject, useRecordPhotos, useSettings } from '../data/store'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { PlanViewer } from '../components/PlanViewer'
-import { ConfirmButton, Empty, Field, IconCheck, IconPlus, IconTrash, IconWarn, Sheet, Toast, useToast } from '../components/ui'
+import { LocationLine, PlanImporter, useDeviceLocation, type Geo } from '../components/Locate'
+import { ConfirmButton, Empty, Field, IconCheck, IconPin, IconPlus, IconTrash, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 import { FIRE_ELEMENTS, FIRE_SIZES, fireProfile, matchProfiles, SCHEDULE_REVISION, type FireElement } from '../data/libraries/fireProfiles'
-import { QA_STATUS_LABEL, QA_STATUSES, type Penetration, type Photo, type QaStatus } from '../data/types'
+import { QA_STATUS_LABEL, QA_STATUSES, type Drawing, type Penetration, type Photo, type QaStatus } from '../data/types'
 import { findTagsInPdf, tagKey } from '../lib/autopin'
 import { formatDateTime } from '../lib/format'
+import { currentPosition } from '../lib/images'
 import { importPlanFile, guessDrawingDetails } from '../lib/planImport'
 import { readRegisterFile, type Sheet as RegisterSheet } from '../lib/xlsx'
 import { firedocSummary } from '../lib/reporting'
@@ -227,7 +229,8 @@ export function FiredocPage() {
                   <span className="row" style={{ marginTop: 6, gap: 6 }}>
                     <span className={`chip ${STATUS_CLASS[p.status]}`}>{QA_STATUS_LABEL[p.status]}</span>
                     {p.frl ? <span className="chip">FRL {p.frl}</span> : null}
-                    {p.drawingId ? <span className="chip chip--surv">{p.autoPinned ? 'Autopinned' : 'Pinned'}</span> : <span className="chip chip--warn">Not on a plan</span>}
+                    {p.drawingId && p.x !== undefined ? <span className="chip chip--surv">{p.autoPinned ? 'Autopinned' : 'Pinned'}</span> : <span className="chip chip--warn">Not on a plan</span>}
+                    {p.lat !== undefined ? <span className="chip chip--ok">GPS</span> : null}
                   </span>
                 </span>
               </button>
@@ -274,14 +277,46 @@ function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () =>
   const [viewing, setViewing] = useState<Photo | null>(null)
   const [pickingProfile, setPickingProfile] = useState(false)
   const [defectNote, setDefectNote] = useState('')
+  const drawings = useDrawings(pen?.projectId)
+  const [moving, setMoving] = useState(false)
+  const [choosingPlan, setChoosingPlan] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [locating, setLocating] = useState(false)
 
   if (!pen) return null
   const profile = fireProfile(pen.profileId)
+  const drawing = drawings.find((d) => d.id === pen.drawingId)
   const patch = (changes: Partial<Penetration>) => updatePenetration(pen.id, changes)
+
+  const locate = async (quiet = false): Promise<Partial<Penetration> | null> => {
+    setLocating(true)
+    const pos = await currentPosition(12000)
+    setLocating(false)
+    if (!pos) {
+      if (!quiet) onToast('Location unavailable')
+      return null
+    }
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, locatedAt: Date.now() }
+  }
+
+  const attachPlan = async (d: Drawing) => {
+    // A hand-placed pin on a new sheet: the old position meant nothing here.
+    await patch({ drawingId: d.id, x: undefined, y: undefined, autoPinned: false })
+    setChoosingPlan(false)
+    setImporting(false)
+    setMoving(true)
+  }
+
+  const geo: Geo | null =
+    pen.lat !== undefined && pen.lng !== undefined ? { lat: pen.lat, lng: pen.lng, accuracy: pen.accuracy, locatedAt: pen.locatedAt ?? pen.updatedAt } : null
 
   const setStatus = async (status: QaStatus) => {
     const changes: Partial<Penetration> = { status }
-    if (status === 'completed_by_site') Object.assign(changes, { installedBy: settings.userName, installedAt: Date.now() })
+    if (status === 'completed_by_site') {
+      Object.assign(changes, { installedBy: settings.userName, installedAt: Date.now() })
+      // Signed where it was installed: record the spot if nothing has yet.
+      if (pen.lat === undefined && settings.captureGps) Object.assign(changes, (await locate(true)) ?? {})
+    }
     if (status === 'reviewed_approved') Object.assign(changes, { reviewedBy: settings.userName, reviewedAt: Date.now(), defect: undefined })
     if (status === 'defected') Object.assign(changes, { reviewedBy: settings.userName, reviewedAt: Date.now(), defect: defectNote })
     if (status === 'in_progress' && pen.status === 'defected') changes.rectifiedAt = Date.now()
@@ -305,6 +340,89 @@ function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () =>
           <span className="chip">{pen.kind === 'wall' ? 'Wall' : 'Floor'}</span>
           {pen.frl ? <span className="chip">FRL {pen.frl}</span> : null}
           {pen.autoPinned ? <span className="chip chip--surv">Autopinned</span> : null}
+        </div>
+
+        {/* Where on the plan */}
+        <div>
+          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+            <span className="field-label" style={{ marginBottom: 0 }}>
+              On the plan
+            </span>
+            <span className="spacer" />
+            {drawing ? (
+              <button className={`btn btn--sm ${moving ? '' : 'btn--ghost'}`} type="button" onClick={() => setMoving(!moving)}>
+                <IconPin />
+                {moving ? 'Tap the plan…' : pen.x !== undefined ? 'Move pin' : 'Drop pin'}
+              </button>
+            ) : null}
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setChoosingPlan(!choosingPlan)}>
+              {drawing ? 'Change plan' : 'Choose plan'}
+            </button>
+          </div>
+          {choosingPlan ? (
+            <div className="row" style={{ gap: 8, marginTop: 8 }}>
+              <select
+                value={drawing?.id ?? ''}
+                onChange={(e) => {
+                  const d = drawings.find((x) => x.id === e.target.value)
+                  if (d) void attachPlan(d)
+                }}
+                style={{ flex: 1 }}
+                aria-label="Plan"
+              >
+                <option value="">Choose…</option>
+                {drawings.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.number} — {d.title}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImporting(true)} style={{ flex: 'none' }}>
+                Import plan
+              </button>
+            </div>
+          ) : null}
+          {importing ? <PlanImporter projectId={pen.projectId} onCancel={() => setImporting(false)} onImported={(d) => void attachPlan(d)} /> : null}
+          {drawing ? (
+            <div style={{ marginTop: 8 }}>
+              <PlanViewer
+                drawing={drawing}
+                pins={pen.x !== undefined && pen.y !== undefined ? [{ id: pen.id, drawingId: drawing.id, x: pen.x, y: pen.y, label: pen.number, createdAt: pen.createdAt }] : []}
+                mode={moving ? 'pin' : 'view'}
+                onDropPin={async (x, y) => {
+                  await patch({ x, y, autoPinned: false })
+                  setMoving(false)
+                  onToast('Pin moved')
+                }}
+                height={260}
+              />
+              <span className="small muted">
+                {drawing.number} {drawing.revision} — {drawing.title}
+                {pen.autoPinned ? ' · placed by Autopin' : ''}
+              </span>
+            </div>
+          ) : (
+            <p className="small muted" style={{ margin: '6px 0 0' }}>
+              Not located on a plan. Choose or import the penetration plan, then drop the pin — or run Autopin from the register.
+            </p>
+          )}
+        </div>
+
+        {/* Where on the earth */}
+        <div>
+          <span className="field-label">Device location</span>
+          <LocationLine
+            geo={geo}
+            state={locating ? 'locating' : 'idle'}
+            onLocate={async () => {
+              const g = await locate()
+              if (g) {
+                await patch(g)
+                onToast('Location updated')
+              }
+            }}
+            onClear={geo ? () => void patch({ lat: undefined, lng: undefined, accuracy: undefined, locatedAt: undefined }) : undefined}
+          />
         </div>
 
         <div className="field-grid">
@@ -665,6 +783,13 @@ function ImportSheet({ projectId, onClose, onToast }: { projectId: string; onClo
 
 function AddSheet({ projectId, onClose, onAdded }: { projectId: string; onClose: () => void; onAdded: (id: string) => void }) {
   const [form, setForm] = useState({ number: '', kind: 'floor' as 'floor' | 'wall', size: '100mm', ref: 'FW', material: 'PVC', frl: '120/120/120', elementMaterial: '', level: '' })
+  const drawings = useDrawings(projectId)
+  const settings = useSettings()
+  const [drawingId, setDrawingId] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+  const location = useDeviceLocation(settings.captureGps)
+  const drawing = drawings.find((d) => d.id === drawingId) ?? (drawingId === 'none' ? undefined : drawings[0])
   return (
     <Sheet title="Add penetration" onClose={onClose}>
       <div className="stack">
@@ -703,6 +828,60 @@ function AddSheet({ projectId, onClose, onAdded }: { projectId: string; onClose:
             <input type="text" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })} />
           </Field>
         </div>
+
+        <div>
+          <span className="field-label">Penetration plan</span>
+          <div className="row" style={{ gap: 8 }}>
+            <select
+              value={drawing?.id ?? 'none'}
+              onChange={(e) => {
+                setDrawingId(e.target.value)
+                setPos(null)
+              }}
+              style={{ flex: 1 }}
+              aria-label="Plan"
+            >
+              {drawings.length === 0 ? <option value="none">No plans on this project yet</option> : <option value="none">Not on a plan</option>}
+              {drawings.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.number} — {d.title}
+                </option>
+              ))}
+            </select>
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImporting(true)} style={{ flex: 'none' }}>
+              Import plan
+            </button>
+          </div>
+        </div>
+        {importing ? (
+          <PlanImporter
+            projectId={projectId}
+            onCancel={() => setImporting(false)}
+            onImported={(d) => {
+              setImporting(false)
+              setDrawingId(d.id)
+              setPos(null)
+            }}
+          />
+        ) : null}
+        {drawing ? (
+          <>
+            <PlanViewer
+              drawing={drawing}
+              pins={pos ? [{ id: 'new', drawingId: drawing.id, x: pos.x, y: pos.y, label: form.number || 'NEW', createdAt: 0 }] : []}
+              mode="pin"
+              onDropPin={(x, y) => setPos({ x, y })}
+              height={280}
+            />
+            <span className="small muted">{pos ? 'Pinned. Tap again to move it.' : 'Tap the plan where the penetration is.'}</span>
+          </>
+        ) : null}
+
+        <div>
+          <span className="field-label">Device location</span>
+          <LocationLine geo={location.geo} state={location.state} onLocate={() => void location.locate()} onClear={location.clear} />
+        </div>
+
         <div className="row row--end">
           <button className="btn btn--ghost" type="button" onClick={onClose}>
             Cancel
@@ -712,7 +891,19 @@ function AddSheet({ projectId, onClose, onAdded }: { projectId: string; onClose:
             type="button"
             disabled={!form.number.trim()}
             onClick={async () => {
-              const p = await createPenetration({ projectId, ...form, sizeMm: parseInt(form.size, 10) || undefined })
+              const p = await createPenetration({
+                projectId,
+                ...form,
+                sizeMm: parseInt(form.size, 10) || undefined,
+                drawingId: drawing?.id,
+                x: pos?.x,
+                y: pos?.y,
+                autoPinned: false,
+                lat: location.geo?.lat,
+                lng: location.geo?.lng,
+                accuracy: location.geo?.accuracy,
+                locatedAt: location.geo?.locatedAt,
+              })
               onAdded(p.id)
             }}
           >

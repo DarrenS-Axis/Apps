@@ -47,7 +47,7 @@ export interface FireProfile {
   installationNotes?: string
 }
 
-export const SCHEDULE_REVISION = '"+REVISION+"'
+export const SCHEDULE_REVISION = 'Rev 6 — 20/03/2024'
 
 export const FIRE_PROFILES: FireProfile[] = [
   {

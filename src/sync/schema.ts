@@ -87,6 +87,9 @@ export const LISTS: ListDef[] = [
       { name: 'FRL', type: 'text' },
       { name: 'ProfileId', type: 'text' },
       { name: 'Status', type: 'text', indexed: true },
+      { name: 'Lat', type: 'number' },
+      { name: 'Lng', type: 'number' },
+      { name: 'DrawingId', type: 'text' },
     ],
   },
   {
@@ -213,6 +216,9 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         FRL: p.frl,
         ProfileId: p.profileId ?? '',
         Status: QA_STATUS_LABEL[p.status] ?? p.status,
+        Lat: p.lat ?? null,
+        Lng: p.lng ?? null,
+        DrawingId: p.drawingId ?? '',
       })
       break
     }

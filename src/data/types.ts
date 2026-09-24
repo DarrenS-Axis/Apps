@@ -657,6 +657,15 @@ export interface Penetration {
   y?: number
   /** True when the position came from the plan search rather than a hand drop. */
   autoPinned?: boolean
+  /**
+   * Where the device was — recorded when the penetration is added or first
+   * completed by site, so a collar can be found again on a floor with no plan
+   * to hand, and the record shows it was signed where it was installed.
+   */
+  lat?: number
+  lng?: number
+  accuracy?: number
+  locatedAt?: number
   status: QaStatus
   installedBy?: string
   installedAt?: number

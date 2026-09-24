@@ -118,7 +118,7 @@ export interface FireProfile {
   installationNotes?: string
 }
 
-export const SCHEDULE_REVISION = '"+REVISION+"'
+export const SCHEDULE_REVISION = '__REVISION__'
 
 export const FIRE_PROFILES: FireProfile[] = [""")
 for p in profiles:
@@ -169,5 +169,5 @@ export const FIRE_SIZES: number[] = [...new Set(FIRE_PROFILES.map((p) => p.sizeM
   (a, b) => a - b,
 )
 """)
-open('src/data/libraries/fireProfiles.ts','w').write('\n'.join(lines))
+open('src/data/libraries/fireProfiles.ts','w').write('\n'.join(lines).replace('__REVISION__', REVISION.replace("'", "\\'")))
 print('wrote fireProfiles.ts', len(profiles), 'profiles')

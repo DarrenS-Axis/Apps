@@ -75,13 +75,21 @@ The exported PDF carries all of it in the Controldoc layout.
   and plasterboard walls, speed panel), filtered by element and size, with the product,
   FRL, test reports and installation notes. A penetration cannot be completed until a
   profile is allocated.
+- **Place and locate every penetration.** From a penetration's own sheet, choose a plan
+  or import one (from the device, SharePoint or OneDrive via the file picker; multi-sheet
+  PDFs ask which sheet), drop the pin and move it later — a pin moved by hand stops being
+  marked as autopinned. Adding a penetration offers the same. The device's position is
+  recorded on add and, if nothing was recorded yet, when the penetration is completed by
+  site — so the record shows where it was signed, with a link to open it in maps.
 - **Workflow** — Setup → In progress → Completed by site → Reviewed & approved or
   Defected, the columns of the monthly report.
 
 ### Reviewdoc — defects
 
-- Raise a defect on a QA walk: tap the plan where it is, prefix the service (Fire Rating,
-  CW, Sanitary Drainage, Incomplete work …), describe it, cost it, photograph it.
+- Raise a defect on a QA walk: choose or import the plan from inside the defect, tap
+  where it is, prefix the service (Fire Rating, CW, Sanitary Drainage, Incomplete work …),
+  describe it, cost it, photograph it. The device's position is recorded with it, and the
+  pin can be moved or the plan changed later. A Plan view shows every defect on a sheet.
 - Rectified by site → reviewed and closed by QA.
 - **QA REPORT** export to the head contractor: cover page, then ID, location, mini map,
   description, cost and photo per defect, as the Controldoc report lays it out.
@@ -133,7 +141,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Nine Playwright suites drive the production build in a real browser, including
+Eleven Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.

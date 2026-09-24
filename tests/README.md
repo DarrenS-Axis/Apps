@@ -26,6 +26,11 @@ console or page error along the way.
   pinch with the fingers released *outside* the viewer, then drag again — repeated over
   several cycles and with one finger lifted before the other. Also flings the plan at zoom
   and asserts it stays on screen, painted, and draggable back.
+- `smoke-firedoc.mjs` — generates a searchable penetration plan (tags like `F0001-FW-100mm`)
+  and an Autopin register CSV, imports the register, runs Autopin and checks it places the
+  three tags on the plan where they are and leaves the fourth unplaced; places that one by
+  hand, moves an autopinned pin, allocates a profile and completes — which records where the
+  device was — then adds a penetration with its plan imported from inside the sheet.
 - `smoke-reviewdoc.mjs` — a defect raised with the plan imported from inside the sheet (a
   multi-sheet PDF, one sheet chosen), pinned and the pin moved, the device's position
   recorded (the browser is placed at Liverpool Hospital), every defect shown on the plan
