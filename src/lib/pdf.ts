@@ -238,7 +238,7 @@ function drawHeader(doc: jsPDF, itp: Itp, project: Project, drawings: Drawing[])
   doc.rect(M, y, PAGE.w - M * 2, 5)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(6.8)
-  doc.text('W - Witness;  H - Hold Point;  S - Surveillance;  X - Self Inspection', PAGE.w / 2, y + 3.4, { align: 'center' })
+  doc.text('H = Hold Point;  M = Monitor / Surveillance;  W = Witness;  X = Self Inspection by performer of work', PAGE.w / 2, y + 3.4, { align: 'center' })
   y += 5
 
   // Drawing number and area row.
@@ -384,7 +384,6 @@ export async function exportItpPdf({ itp, project, drawings, photos }: ExportInp
 
   /* --------------------------------------------------------- sign-off */
 
-  const afterSchedule = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY
   // 3.0 TEST RECORD — the fixed form every Controldoc ITP carries.
   {
     const rec = itp.testRecord
@@ -418,7 +417,7 @@ export async function exportItpPdf({ itp, project, drawings, photos }: ExportInp
       columnStyles: { 0: { cellWidth: 78, fillColor: [GREY[0], GREY[1], GREY[2]] }, 1: { cellWidth: 'auto' } },
     })
   }
-  drawSignOff(doc, itp, afterSchedule + 2)
+  drawSignOff(doc, itp, (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 2)
 
   /* ------------------------------------------------- photographic record */
 
