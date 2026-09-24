@@ -962,7 +962,7 @@ export async function exportQaReportPdf({ project, unit, defects, drawings, phot
     const photo = photos.find((p) => p.defectId === d.id)
     rows.push([
       d.number,
-      [d.locationPath, plan ? `${plan.number} ${plan.revision}`.trim() : '', d.locRef].filter(Boolean).join('\n') || '-',
+      [d.locationPath, plan ? `${plan.number} ${plan.revision}`.trim() : '', d.locRef, d.lat !== undefined && d.lng !== undefined ? `GPS ${formatCoords(d.lat, d.lng)}${d.accuracy ? ` (±${Math.round(d.accuracy)} m)` : ''}` : ''].filter(Boolean).join('\n') || '-',
       map ? { image: map } : '',
       `${d.service}: ${d.description}${d.status !== 'open' ? `\n[${DEFECT_STATUS_LABEL[d.status]}]` : ''}`,
       d.cost ? aud(d.cost) : '',

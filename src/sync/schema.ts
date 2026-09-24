@@ -100,6 +100,9 @@ export const LISTS: ListDef[] = [
       { name: 'Status', type: 'text', indexed: true },
       { name: 'Cost', type: 'number' },
       { name: 'RaisedAt', type: 'number' },
+      { name: 'Lat', type: 'number' },
+      { name: 'Lng', type: 'number' },
+      { name: 'DrawingId', type: 'text' },
     ],
   },
   {
@@ -222,6 +225,9 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         Status: d.status,
         Cost: d.cost ?? 0,
         RaisedAt: d.raisedAt,
+        Lat: d.lat ?? null,
+        Lng: d.lng ?? null,
+        DrawingId: d.drawingId ?? '',
       })
       break
     }

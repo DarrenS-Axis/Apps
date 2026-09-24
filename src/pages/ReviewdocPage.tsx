@@ -1,22 +1,28 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { createDefect, db, deleteDefect, updateDefect } from '../data/db'
+import { createDefect, createDrawing, db, deleteDefect, updateDefect } from '../data/db'
 import { useBusinessUnit, useDefect, useDefects, useDrawings, useLive, useProject, useRecordPhotos, useSettings } from '../data/store'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { PlanViewer } from '../components/PlanViewer'
-import { ConfirmButton, Empty, Field, IconCheck, IconPdf, IconPlus, IconTrash, Sheet, Toast, useToast } from '../components/ui'
-import { DEFECT_STATUS_LABEL, SERVICE_TYPES, type Defect, type DefectStatus, type Photo, type ServiceType } from '../data/types'
+import { ConfirmButton, Empty, Field, IconCheck, IconPdf, IconPin, IconPlus, IconTrash, Sheet, Toast, useToast } from '../components/ui'
+import { DEFECT_STATUS_LABEL, SERVICE_TYPES, type Defect, type DefectStatus, type Drawing, type Photo, type ServiceType } from '../data/types'
 import { downloadBlob, formatDateTime, slug } from '../lib/format'
+import { currentPosition, formatCoords } from '../lib/images'
 import { exportQaReportPdf } from '../lib/pdf'
+import { guessDrawingDetails, importPlanFile, type ImportProgress, type PlanImport } from '../lib/planImport'
 import { aud, reviewdocTotals } from '../lib/reporting'
 import { raiseEvent } from '../sync'
 
 const STATUS_CLASS: Record<DefectStatus, string> = { open: 'chip--hold', rectified: 'chip--warn', closed: 'chip--ok' }
 
+type Geo = { lat: number; lng: number; accuracy?: number; locatedAt: number }
+
+const mapsUrl = (lat: number, lng: number) => `https://www.google.com/maps?q=${lat.toFixed(6)},${lng.toFixed(6)}`
+
 /**
- * Reviewdoc for one project: defects found at QA review, each located on a
- * plan, costed and photographed, and the report that goes to the head
- * contractor.
+ * Reviewdoc for one project: defects found at QA review, each pinned on a
+ * plan and located by the device, costed and photographed, and the report
+ * that goes to the head contractor.
  */
 export function ReviewdocPage() {
   const { projectId } = useParams()
@@ -30,6 +36,8 @@ export function ReviewdocPage() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [raising, setRaising] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [view, setView] = useState<'list' | 'plan'>('list')
+  const [planId, setPlanId] = useState('')
 
   const totals = useMemo(() => reviewdocTotals(defects), [defects])
   const filtered = useMemo(() => {
@@ -38,6 +46,12 @@ export function ReviewdocPage() {
       .filter((d) => (!status || d.status === status) && (!q || [d.number, d.service, d.description, d.locationPath].join(' ').toLowerCase().includes(q)))
       .sort((a, b) => b.raisedAt - a.raisedAt)
   }, [defects, query, status])
+
+  const pinnedDrawings = useMemo(() => {
+    const ids = new Set(defects.map((d) => d.drawingId).filter(Boolean))
+    return drawings.filter((d) => ids.has(d.id))
+  }, [defects, drawings])
+  const activePlan = drawings.find((d) => d.id === (planId || pinnedDrawings[0]?.id))
 
   const exportReport = async () => {
     if (!project) return
@@ -73,24 +87,62 @@ export function ReviewdocPage() {
         </button>
       </div>
 
-      <div className="searchbar">
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search defects" />
-      </div>
-      <div className="row" style={{ gap: 6, marginBottom: 10 }}>
+      <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
         {(['open', 'rectified', 'closed', ''] as (DefectStatus | '')[]).map((s) => (
           <button key={s || 'all'} className={`btn btn--sm ${status === s ? '' : 'btn--ghost'}`} type="button" onClick={() => setStatus(s)}>
-            {s ? DEFECT_STATUS_LABEL[s] : 'All'} ({s ? defects.filter((d) => d.status === s).length : defects.length})
+            {s ? DEFECT_STATUS_LABEL[s].replace(' — awaiting review', '') : 'All'} ({s ? defects.filter((d) => d.status === s).length : defects.length})
           </button>
         ))}
+        <span className="spacer" />
+        <div className="row" style={{ gap: 0 }}>
+          <button className={`btn btn--sm ${view === 'list' ? '' : 'btn--ghost'}`} type="button" onClick={() => setView('list')}>
+            List
+          </button>
+          <button className={`btn btn--sm ${view === 'plan' ? '' : 'btn--ghost'}`} type="button" onClick={() => setView('plan')} disabled={pinnedDrawings.length === 0}>
+            Plan
+          </button>
+        </div>
+      </div>
+
+      {view === 'plan' && activePlan ? (
+        <div className="card">
+          <div className="card__body">
+            {pinnedDrawings.length > 1 ? (
+              <select value={activePlan.id} onChange={(e) => setPlanId(e.target.value)} style={{ marginBottom: 10 }}>
+                {pinnedDrawings.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.number} — {d.title}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <PlanViewer
+              drawing={activePlan}
+              pins={filtered
+                .filter((d) => d.drawingId === activePlan.id && d.x !== undefined && d.y !== undefined)
+                .map((d) => ({ id: d.id, drawingId: activePlan.id, x: d.x!, y: d.y!, label: d.number.replace(/^0+/, '') || d.number, note: `${d.service}: ${d.description}`, createdAt: d.createdAt }))}
+              onSelectPin={(pin) => setOpenId(pin.id)}
+              selectedPinId={openId ?? undefined}
+              height={480}
+            />
+            <p className="small muted" style={{ margin: '8px 0 0' }}>
+              {filtered.filter((d) => d.drawingId === activePlan.id).length} of the defects shown are on this sheet. Tap a pin to open it.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="searchbar">
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search defects" />
       </div>
 
       <div className="card card__body--flush">
         {defects.length === 0 ? (
-          <Empty title="No defects raised" hint="Raise one from a QA walk: locate it on the plan, describe it, cost it, photograph it." />
+          <Empty title="No defects raised" hint="Raise one from a QA walk: pick or import the plan, tap where the defect is, describe it, cost it, photograph it. The device records where it was." />
         ) : filtered.length === 0 ? (
           <Empty title="Nothing here" />
         ) : (
-          filtered.map((d) => <DefectRow key={d.id} defect={d} onOpen={() => setOpenId(d.id)} />)
+          filtered.map((d) => <DefectRow key={d.id} defect={d} drawings={drawings} onOpen={() => setOpenId(d.id)} />)
         )}
       </div>
 
@@ -111,8 +163,9 @@ export function ReviewdocPage() {
   )
 }
 
-function DefectRow({ defect, onOpen }: { defect: Defect; onOpen: () => void }) {
+function DefectRow({ defect, drawings, onOpen }: { defect: Defect; drawings: Drawing[]; onOpen: () => void }) {
   const photo = useLive(() => db.photos.where('defectId').equals(defect.id).first(), [defect.id], undefined)
+  const plan = drawings.find((d) => d.id === defect.drawingId)
   return (
     <button className="listitem" type="button" onClick={onOpen}>
       <span className="listitem__num" style={{ fontSize: 11 }}>
@@ -122,15 +175,187 @@ function DefectRow({ defect, onOpen }: { defect: Defect; onOpen: () => void }) {
         <strong>
           {defect.service}: {defect.description}
         </strong>
-        <span>{[defect.locationPath, defect.locRef].filter(Boolean).join(' · ') || 'Not located'}</span>
-        <span className="row" style={{ marginTop: 6, gap: 6 }}>
-          <span className={`chip ${STATUS_CLASS[defect.status]}`}>{DEFECT_STATUS_LABEL[defect.status]}</span>
+        <span>{[plan ? `${plan.number} ${plan.revision}`.trim() : defect.locationPath, defect.locRef].filter(Boolean).join(' · ') || 'Not located on a plan'}</span>
+        <span className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>
+          <span className={`chip ${STATUS_CLASS[defect.status]}`}>{DEFECT_STATUS_LABEL[defect.status].replace(' — awaiting review', '')}</span>
           {defect.cost ? <span className="chip">{aud(defect.cost)}</span> : null}
-          {defect.drawingId ? <span className="chip chip--surv">On plan</span> : null}
+          {defect.drawingId && defect.x !== undefined ? <span className="chip chip--surv">Pinned</span> : null}
+          {defect.lat !== undefined ? <span className="chip chip--ok">GPS</span> : null}
         </span>
       </span>
       {photo ? <img src={photo.thumb} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6 }} /> : null}
     </button>
+  )
+}
+
+/* ----------------------------------------------------------- location */
+
+/** The device's position, fetched on mount and on demand. */
+function useDeviceLocation(enabled: boolean) {
+  const [geo, setGeo] = useState<Geo | null>(null)
+  const [state, setState] = useState<'idle' | 'locating' | 'unavailable'>('idle')
+  const locate = async () => {
+    setState('locating')
+    const pos = await currentPosition(12000)
+    if (pos) {
+      setGeo({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, locatedAt: Date.now() })
+      setState('idle')
+    } else {
+      setState('unavailable')
+    }
+  }
+  useEffect(() => {
+    if (enabled) void locate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled])
+  return { geo, state, locate, clear: () => setGeo(null) }
+}
+
+function LocationLine({ geo, state, onLocate, onClear }: { geo: Geo | null; state: 'idle' | 'locating' | 'unavailable'; onLocate: () => void; onClear?: () => void }) {
+  return (
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span className="small" style={{ flex: 1, minWidth: 160 }}>
+        {geo ? (
+          <>
+            <span className="mono">GPS {formatCoords(geo.lat, geo.lng)}</span>
+            {geo.accuracy ? <span className="muted"> ±{Math.round(geo.accuracy)} m</span> : null}
+            <span className="muted"> · {formatDateTime(geo.locatedAt)}</span> ·{' '}
+            <a href={mapsUrl(geo.lat, geo.lng)} target="_blank" rel="noreferrer">
+              Open in maps
+            </a>
+          </>
+        ) : state === 'locating' ? (
+          <span className="muted">Locating…</span>
+        ) : state === 'unavailable' ? (
+          <span className="muted">Location unavailable — allow location for this site, or move to where the phone can see the sky.</span>
+        ) : (
+          <span className="muted">No device location recorded.</span>
+        )}
+      </span>
+      <button className="btn btn--ghost btn--sm" type="button" disabled={state === 'locating'} onClick={onLocate}>
+        {geo ? 'Refresh location' : 'Locate me'}
+      </button>
+      {geo && onClear ? (
+        <button className="btn btn--ghost btn--sm" type="button" onClick={onClear}>
+          Clear
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------- plan picking */
+
+/**
+ * Pulls a plan into the project from inside Reviewdoc, so a QA walk does not
+ * detour through the Plans tab: the file browser reaches SharePoint, OneDrive
+ * or whatever the phone is signed in to, and a multi-sheet PDF asks which
+ * sheet before the drawing is created.
+ */
+function PlanImporter({ projectId, onImported, onCancel }: { projectId: string; onImported: (drawing: Drawing) => void; onCancel: () => void }) {
+  const fileRef = useRef<HTMLInputElement | null>(null)
+  const [imported, setImported] = useState<PlanImport | null>(null)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [progress, setProgress] = useState<ImportProgress | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [number, setNumber] = useState('')
+  const [title, setTitle] = useState('')
+  const [revision, setRevision] = useState('')
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const plan = await importPlanFile(file, { onProgress: setProgress })
+      setImported(plan)
+      const guess = guessDrawingDetails(plan.pages[0], plan.fileName)
+      setNumber(guess.number ?? '')
+      setTitle(guess.title ?? '')
+      setRevision(guess.revision ?? '')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that file.')
+    } finally {
+      setBusy(false)
+      setProgress(null)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const save = async () => {
+    const page = imported?.pages[pageIndex]
+    if (!page) return
+    const drawing = await createDrawing({
+      projectId,
+      number: number.trim() || imported!.fileName.replace(/\.[a-z]+$/i, ''),
+      title: title.trim() || 'Plan',
+      revision: revision.trim(),
+      discipline: 'Hydraulic',
+      imageData: page.data,
+      imageWidth: page.width,
+      imageHeight: page.height,
+      thumbData: page.thumb,
+    })
+    onImported(drawing)
+  }
+
+  return (
+    <div className="card">
+      <div className="card__body stack">
+        <span className="field-label">Import a plan</span>
+        {!imported ? (
+          <>
+            <p className="small muted" style={{ margin: 0 }}>
+              A PDF or image from this device, SharePoint, OneDrive or any store the phone is signed in to. Rendered on the device — nothing is uploaded.
+            </p>
+            <input ref={fileRef} type="file" accept="application/pdf,.pdf,image/*" onChange={(e) => void pick(e.target.files?.[0])} disabled={busy} />
+            {busy ? <span className="small muted">{progress ? `Rendering sheet ${progress.page} of ${progress.total}…` : 'Reading…'}</span> : null}
+            {error ? <div className="banner banner--warn">{error}</div> : null}
+          </>
+        ) : (
+          <>
+            {imported.pages.length > 1 ? (
+              <div>
+                <span className="small muted">Which sheet?</span>
+                <div className="row" style={{ gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+                  {imported.pages.map((p, i) => (
+                    <button key={p.page} type="button" className={`btn btn--sm ${i === pageIndex ? '' : 'btn--ghost'}`} onClick={() => setPageIndex(i)} style={{ flex: 'none' }}>
+                      <img src={p.thumb} alt="" style={{ width: 56, height: 40, objectFit: 'cover', borderRadius: 4, marginRight: 6 }} />
+                      {p.page}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="field-grid">
+              <Field label="Drawing number">
+                <input type="text" value={number} onChange={(e) => setNumber(e.target.value)} placeholder="HC-201" />
+              </Field>
+              <Field label="Revision">
+                <input type="text" value={revision} onChange={(e) => setRevision(e.target.value)} placeholder="Rev C" />
+              </Field>
+            </div>
+            <Field label="Title">
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </Field>
+            <div className="row row--end">
+              <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImported(null)}>
+                Choose another
+              </button>
+              <button className="btn btn--sm" type="button" onClick={() => void save()}>
+                Use this plan
+              </button>
+            </div>
+          </>
+        )}
+        {!imported ? (
+          <button className="btn btn--ghost btn--sm" type="button" onClick={onCancel} style={{ alignSelf: 'flex-start' }}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -139,13 +364,15 @@ function DefectRow({ defect, onOpen }: { defect: Defect; onOpen: () => void }) {
 function RaiseSheet({ projectId, onClose, onRaised }: { projectId: string; onClose: () => void; onRaised: (id: string) => void }) {
   const drawings = useDrawings(projectId)
   const settings = useSettings()
-  const [drawingId, setDrawingId] = useState(drawings[0]?.id ?? '')
+  const [drawingId, setDrawingId] = useState('')
+  const [importing, setImporting] = useState(false)
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const [service, setService] = useState<ServiceType>('Fire Rating')
   const [description, setDescription] = useState('')
   const [cost, setCost] = useState('')
   const [assignedTo, setAssignedTo] = useState('')
-  const drawing = drawings.find((d) => d.id === (drawingId || drawings[0]?.id))
+  const location = useDeviceLocation(settings.captureGps)
+  const drawing = drawings.find((d) => d.id === drawingId) ?? (drawingId === 'none' ? undefined : drawings[0])
 
   const submit = async () => {
     const d = await createDefect({
@@ -159,11 +386,15 @@ function RaiseSheet({ projectId, onClose, onRaised }: { projectId: string; onClo
       cost: cost ? Number(cost) : undefined,
       raisedBy: settings.userName,
       assignedTo: assignedTo || undefined,
+      lat: location.geo?.lat,
+      lng: location.geo?.lng,
+      accuracy: location.geo?.accuracy,
+      locatedAt: location.geo?.locatedAt,
     })
     await raiseEvent({
       event: 'defect.raised',
       projectId,
-      record: { number: d.number, service, description: d.description, cost: d.cost },
+      record: { number: d.number, service, description: d.description, cost: d.cost, lat: d.lat, lng: d.lng, drawing: drawing?.number },
       summary: `Defect ${d.number} raised — ${service}: ${d.description}${d.cost ? ` (${aud(d.cost)})` : ''}`,
     })
     onRaised(d.id)
@@ -172,32 +403,59 @@ function RaiseSheet({ projectId, onClose, onRaised }: { projectId: string; onClo
   return (
     <Sheet title="Raise defect" onClose={onClose}>
       <div className="stack">
-        {drawings.length ? (
+        <div>
+          <span className="field-label">Plan</span>
+          <div className="row" style={{ gap: 8 }}>
+            <select
+              value={drawing?.id ?? 'none'}
+              onChange={(e) => {
+                setDrawingId(e.target.value)
+                setPos(null)
+              }}
+              style={{ flex: 1 }}
+              aria-label="Plan"
+            >
+              {drawings.length === 0 ? <option value="none">No plans on this project yet</option> : <option value="none">Not on a plan</option>}
+              {drawings.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.number} — {d.title}
+                </option>
+              ))}
+            </select>
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImporting(true)} style={{ flex: 'none' }}>
+              Import plan
+            </button>
+          </div>
+        </div>
+        {importing ? (
+          <PlanImporter
+            projectId={projectId}
+            onCancel={() => setImporting(false)}
+            onImported={(d) => {
+              setImporting(false)
+              setDrawingId(d.id)
+              setPos(null)
+            }}
+          />
+        ) : null}
+        {drawing ? (
           <>
-            <Field label="Plan" hint="Tap the plan where the defect is.">
-              <select value={drawing?.id ?? ''} onChange={(e) => { setDrawingId(e.target.value); setPos(null) }}>
-                {drawings.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.number} — {d.title}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            {drawing ? (
-              <PlanViewer
-                drawing={drawing}
-                pins={pos ? [{ id: 'new', drawingId: drawing.id, x: pos.x, y: pos.y, label: '1', createdAt: 0 }] : []}
-                mode="pin"
-                onDropPin={(x, y) => setPos({ x, y })}
-                height={300}
-              />
-            ) : null}
+            <PlanViewer
+              drawing={drawing}
+              pins={pos ? [{ id: 'new', drawingId: drawing.id, x: pos.x, y: pos.y, label: '1', createdAt: 0 }] : []}
+              mode="pin"
+              onDropPin={(x, y) => setPos({ x, y })}
+              height={300}
+            />
+            <span className="small muted">{pos ? 'Pinned. Tap again to move it.' : 'Tap the plan where the defect is. Pinch to zoom in first if it is fiddly.'}</span>
           </>
-        ) : (
-          <p className="small muted" style={{ margin: 0 }}>
-            No plans loaded on this project yet — the defect can be located later.
-          </p>
-        )}
+        ) : null}
+
+        <div>
+          <span className="field-label">Device location</span>
+          <LocationLine geo={location.geo} state={location.state} onLocate={() => void location.locate()} onClear={location.clear} />
+        </div>
+
         <div className="field-grid">
           <Field label="Service">
             <select value={service} onChange={(e) => setService(e.target.value as ServiceType)}>
@@ -213,7 +471,7 @@ function RaiseSheet({ projectId, onClose, onRaised }: { projectId: string; onClo
           </Field>
         </div>
         <Field label="Description">
-          <textarea autoFocus value={description} onChange={(e) => setDescription(e.target.value)} placeholder="High top installed incorrectly. High top extension pieces required; pipe cannot be used to extend the high top." />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="High top installed incorrectly. High top extension pieces required; pipe cannot be used to extend the high top." />
         </Field>
         <Field label="Assigned to (crew / subcontractor)">
           <input type="text" value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} />
@@ -239,6 +497,10 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
   const photos = useRecordPhotos('defectId', id)
   const drawings = useDrawings(defect?.projectId)
   const [viewing, setViewing] = useState<Photo | null>(null)
+  const [moving, setMoving] = useState(false)
+  const [choosingPlan, setChoosingPlan] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [locating, setLocating] = useState(false)
   if (!defect) return null
   const drawing = drawings.find((d) => d.id === defect.drawingId)
   const patch = (changes: Partial<Defect>) => updateDefect(defect.id, changes)
@@ -255,17 +517,107 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
     onToast(`${defect.number}: ${DEFECT_STATUS_LABEL[status]}`)
   }
 
+  const relocate = async () => {
+    setLocating(true)
+    const pos = await currentPosition(12000)
+    setLocating(false)
+    if (!pos) {
+      onToast('Location unavailable')
+      return
+    }
+    await patch({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, locatedAt: Date.now() })
+    onToast('Location updated')
+  }
+
+  const attachPlan = async (d: Drawing) => {
+    await patch({ drawingId: d.id, x: undefined, y: undefined, locationPath: `Reviewdoc > ${d.number} ${d.title}`.trim() })
+    setChoosingPlan(false)
+    setImporting(false)
+    setMoving(true)
+  }
+
+  const geo: Geo | null = defect.lat !== undefined && defect.lng !== undefined ? { lat: defect.lat, lng: defect.lng, accuracy: defect.accuracy, locatedAt: defect.locatedAt ?? defect.raisedAt } : null
+
   return (
     <Sheet title={`Defect ${defect.number}`} onClose={onClose}>
       <div className="stack">
-        <div className="row" style={{ gap: 6 }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <span className={`chip ${STATUS_CLASS[defect.status]}`}>{DEFECT_STATUS_LABEL[defect.status]}</span>
           <span className="chip">{defect.service}</span>
           {defect.cost ? <span className="chip">{aud(defect.cost)}</span> : null}
         </div>
-        {drawing && defect.x !== undefined && defect.y !== undefined ? (
-          <PlanViewer drawing={drawing} pins={[{ id: defect.id, drawingId: drawing.id, x: defect.x, y: defect.y, label: '1', createdAt: defect.createdAt }]} height={240} />
-        ) : null}
+
+        {/* Where on the plan */}
+        <div>
+          <div className="row" style={{ alignItems: 'center' }}>
+            <span className="field-label" style={{ marginBottom: 0 }}>
+              On the plan
+            </span>
+            <span className="spacer" />
+            {drawing ? (
+              <button className={`btn btn--sm ${moving ? '' : 'btn--ghost'}`} type="button" onClick={() => setMoving(!moving)}>
+                <IconPin />
+                {moving ? 'Tap the plan…' : defect.x !== undefined ? 'Move pin' : 'Drop pin'}
+              </button>
+            ) : null}
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => setChoosingPlan(!choosingPlan)}>
+              {drawing ? 'Change plan' : 'Choose plan'}
+            </button>
+          </div>
+          {choosingPlan ? (
+            <div className="row" style={{ gap: 8, marginTop: 8 }}>
+              <select
+                value={drawing?.id ?? ''}
+                onChange={(e) => {
+                  const d = drawings.find((x) => x.id === e.target.value)
+                  if (d) void attachPlan(d)
+                }}
+                style={{ flex: 1 }}
+                aria-label="Plan"
+              >
+                <option value="">Choose…</option>
+                {drawings.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.number} — {d.title}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn--ghost btn--sm" type="button" onClick={() => setImporting(true)} style={{ flex: 'none' }}>
+                Import plan
+              </button>
+            </div>
+          ) : null}
+          {importing ? <PlanImporter projectId={defect.projectId} onCancel={() => setImporting(false)} onImported={(d) => void attachPlan(d)} /> : null}
+          {drawing ? (
+            <div style={{ marginTop: 8 }}>
+              <PlanViewer
+                drawing={drawing}
+                pins={defect.x !== undefined && defect.y !== undefined ? [{ id: defect.id, drawingId: drawing.id, x: defect.x, y: defect.y, label: defect.number.replace(/^0+/, '') || '1', createdAt: defect.createdAt }] : []}
+                mode={moving ? 'pin' : 'view'}
+                onDropPin={async (x, y) => {
+                  await patch({ x, y })
+                  setMoving(false)
+                  onToast('Pin moved')
+                }}
+                height={260}
+              />
+              <span className="small muted">
+                {drawing.number} {drawing.revision} — {drawing.title}
+              </span>
+            </div>
+          ) : (
+            <p className="small muted" style={{ margin: '6px 0 0' }}>
+              Not located on a plan.
+            </p>
+          )}
+        </div>
+
+        {/* Where on the earth */}
+        <div>
+          <span className="field-label">Device location</span>
+          <LocationLine geo={geo} state={locating ? 'locating' : 'idle'} onLocate={() => void relocate()} onClear={geo ? () => void patch({ lat: undefined, lng: undefined, accuracy: undefined, locatedAt: undefined }) : undefined} />
+        </div>
+
         <Field label="Description">
           <textarea value={defect.description} onChange={(e) => void patch({ description: e.target.value })} />
         </Field>
@@ -284,8 +636,8 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
           </Field>
         </div>
         <div className="field-grid">
-          <Field label="Location">
-            <input type="text" value={defect.locationPath ?? ''} onChange={(e) => void patch({ locationPath: e.target.value })} />
+          <Field label="Location note">
+            <input type="text" value={defect.locationPath ?? ''} onChange={(e) => void patch({ locationPath: e.target.value })} placeholder="Level 4, grid C7, above ceiling" />
           </Field>
           <Field label="Assigned to">
             <input type="text" value={defect.assignedTo ?? ''} onChange={(e) => void patch({ assignedTo: e.target.value })} />
@@ -295,7 +647,7 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
           <span className="field-label">Photos ({photos.length})</span>
           <PhotoCaptureButtons
             settings={settings}
-            target={{ defectId: defect.id, projectId: defect.projectId, contextLines: [`Reviewdoc ${defect.number} · ${defect.service}`] }}
+            target={{ defectId: defect.id, projectId: defect.projectId, contextLines: [`Reviewdoc ${defect.number} · ${defect.service}`, drawing ? `${drawing.number} ${drawing.revision}`.trim() : ''] }}
             defaultCategory="defect"
             onCaptured={() => onToast('Photo added')}
             onError={onToast}

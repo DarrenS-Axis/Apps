@@ -26,6 +26,10 @@ console or page error along the way.
   pinch with the fingers released *outside* the viewer, then drag again — repeated over
   several cycles and with one finger lifted before the other. Also flings the plan at zoom
   and asserts it stays on screen, painted, and draggable back.
+- `smoke-reviewdoc.mjs` — a defect raised with the plan imported from inside the sheet (a
+  multi-sheet PDF, one sheet chosen), pinned and the pin moved, the device's position
+  recorded (the browser is placed at Liverpool Hospital), every defect shown on the plan
+  view, and the QA report exported with the coordinates.
 - `smoke-sharepoint.mjs` — the Microsoft 365 path, against `mock-graph.mjs` (a stand-in for
   the slice of Graph the sync layer uses): provision the eight lists, write records on one
   device and push them, pull them onto a fresh NSW device, confirm a QLD device receives

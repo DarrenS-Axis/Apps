@@ -736,6 +736,15 @@ export interface Defect {
   description: string
   /** Estimated rectification cost, AUD. */
   cost?: number
+  /**
+   * Where the device was when the defect was raised — the plan pin says where
+   * on the drawing, this says where on the earth, which is what finds it again
+   * on a site with no plan to hand.
+   */
+  lat?: number
+  lng?: number
+  accuracy?: number
+  locatedAt?: number
   status: DefectStatus
   raisedBy?: string
   raisedAt: number
