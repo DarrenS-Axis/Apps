@@ -1,4 +1,4 @@
-import { db, uid } from '../data/db'
+import { db, loadOrg, uid } from '../data/db'
 import { loadSettings } from '../data/db'
 import { recipientsFor } from '../data/people'
 import { appBase } from '../lib/qr'
@@ -73,11 +73,16 @@ export const EVENT_SCHEMA = {
   },
 }
 
+/** The notification flow: the organisation's (shared through SharePoint), or one set on this device before that existed. */
+export async function flowUrl(): Promise<string | undefined> {
+  return (await loadOrg())?.powerAutomateUrl || (await loadSettings()).sync.powerAutomateUrl || undefined
+}
+
 export async function raiseEvent(
   input: Omit<QaEvent, 'at' | 'actor' | 'recipients' | 'notifyEmails' | 'link'> & { projectId?: string; /** App route, e.g. "/plant/tag/SA-0001". */ link?: string },
 ): Promise<void> {
   const settings = await loadSettings()
-  if (!settings.sync.powerAutomateUrl) return
+  if (!(await flowUrl())) return
   let project = input.project
   let state = input.state
   let businessUnit = input.businessUnit
@@ -119,8 +124,7 @@ export async function flushEvents(): Promise<{ sent: number; failed: number }> {
   flushing = true
   const result = { sent: 0, failed: 0 }
   try {
-    const settings = await loadSettings()
-    const url = settings.sync.powerAutomateUrl
+    const url = await flowUrl()
     if (!url) return result
     const queued = await db.events.orderBy('at').toArray()
     for (const e of queued) {

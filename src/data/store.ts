@@ -1,7 +1,7 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { db, loadSettings } from './db'
-import type { BusinessUnit, Defect, Depot, Drawing, Itp, Penetration, Person, Photo, PlantItem, Project, Settings, StateCode } from './types'
+import type { BusinessUnit, Defect, Depot, Drawing, Itp, OrgSettings, Penetration, Person, Photo, PlantItem, Project, Settings, StateCode } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 /**
@@ -106,6 +106,18 @@ export function useDefects(projectId?: string): Defect[] {
 
 export function useDefect(id?: string): Defect | undefined {
   return useLive(() => (id ? db.defects.get(id) : undefined), [id], undefined)
+}
+
+/** The organisation's shared settings, from SharePoint. */
+export function useOrg(): OrgSettings | undefined {
+  return useLive(() => db.org.get('org'), [], undefined)
+}
+
+/** The notification flow everyone's events go to, if one is set. */
+export function useFlowUrl(): string | undefined {
+  const org = useOrg()
+  const settings = useSettings()
+  return org?.powerAutomateUrl || settings.sync.powerAutomateUrl || undefined
 }
 
 const EMPTY_PEOPLE: Person[] = []

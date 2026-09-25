@@ -162,6 +162,7 @@ export const LISTS: ListDef[] = [
     displayName: 'QA Depots',
     columns: [...common, { name: 'Address', type: 'text' }, { name: 'Lat', type: 'number' }, { name: 'Lng', type: 'number' }, { name: 'Radius', type: 'number' }],
   },
+  { table: 'org', displayName: 'QA Settings', columns: [...common] },
   {
     table: 'people',
     displayName: 'QA People',

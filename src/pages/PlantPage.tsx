@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { addPhoto, db } from '../data/db'
+import { addPhoto, db, loadSettings } from '../data/db'
 import {
   createDepot,
   createPlantItem,
@@ -38,7 +38,7 @@ import { PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { mapsUrl } from '../components/Locate'
 import { QrScanner } from '../components/QrScanner'
 import { RecordFooter } from '../components/RecordFooter'
-import { raiseEvent } from '../sync'
+import { isConfigured, raiseEvent, syncNow } from '../sync'
 import { PlantMap } from '../components/PlantMap'
 import { ConfirmButton, Empty, Field, IconCamera, IconDownload, IconPlus, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 import { downloadBlob, formatDate, formatDateTime, relativeTime, todayIso } from '../lib/format'
@@ -104,6 +104,20 @@ function placementText(p: Placement, item: PlantItem): { text: string; tone: 'ok
 }
 
 /**
+ * The item behind a label — fetched from SharePoint first when this device
+ * has not got it yet, since labels are scanned on phones that were never
+ * near the one that added the item.
+ */
+async function findOrFetch(plantNo: string, states: StateCode[]): Promise<PlantItem | undefined> {
+  const here = await findPlantByNo(plantNo, states)
+  if (here) return here
+  const settings = await loadSettings()
+  if (!isConfigured(settings.sync) || !navigator.onLine) return undefined
+  await syncNow()
+  return findPlantByNo(plantNo, states)
+}
+
+/**
  * A label scanned with the phone's own camera opens #/plant/tag/SA-0042.
  * It hands the number to the register, which opens the item.
  */
@@ -156,7 +170,7 @@ export function PlantPage() {
   useEffect(() => {
     if (!tagged || !states.length) return
     navigate('/plant', { replace: true, state: null })
-    void findPlantByNo(tagged, states).then((item) => {
+    void findOrFetch(tagged, states).then((item) => {
       if (item) setOpen(justView ? { id: item.id } : { id: item.id, via: 'scan' })
       else setUnknown(tagged.toUpperCase())
     })
@@ -1110,7 +1124,7 @@ function ScanSheet({
       setMessage(`That code is not a plant label: “${text.slice(0, 60)}”`)
       return
     }
-    const item = await findPlantByNo(plantNo, states)
+    const item = await findOrFetch(plantNo, states)
     if (mode === 'single') {
       if (item) onFound(item)
       else onUnknown(plantNo)

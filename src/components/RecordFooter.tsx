@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { db } from '../data/db'
 import { createPerson, isEmail } from '../data/people'
-import { useLive, usePeople, useSettings } from '../data/store'
+import { useFlowUrl, useLive, usePeople, useSettings } from '../data/store'
 import type { Allocation, StateCode } from '../data/types'
 import { appBase } from '../lib/qr'
 import { formatDate, relativeTime, todayIso } from '../lib/format'
@@ -107,6 +107,7 @@ export function RecordFooter({
   extra?: ReactNode
 }) {
   const settings = useSettings()
+  const flow = useFlowUrl()
   const people = usePeople(state ?? 'all')
   const seen = useWorkers()
   // Profiles first; names seen on records but with no profile after them.
@@ -147,7 +148,7 @@ export function RecordFooter({
       setNotice(
         !to
           ? `No email for ${name.trim()} — add one to their profile in Settings → People to notify them.`
-          : settings.sync.powerAutomateUrl
+          : flow
             ? `${name.trim()} will be emailed at ${to} by the Power Automate flow.`
             : `No notification flow is set up — use “Email ${name.trim()}” to send it from your mail app.`,
       )

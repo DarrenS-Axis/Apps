@@ -191,30 +191,71 @@ The monthly report, live, for a business unit, a state or the nation: the Firedo
 project), the completed-ITP trend over three months, and Reviewdoc value and quantity by
 service type and by project.
 
+## Everyone on the same data: going live
+
+Out of the box each device keeps its own records. Connected to the company's Microsoft
+365, **everyone who opens the app — or any link from it, on any phone, tablet or laptop —
+sees the same projects, ITPs, penetrations, defects, plant and people**, after signing in
+with their Axis work account. Nothing is set up on the devices: the connection ships with
+the app.
+
+**One-time setup (an IT / Microsoft 365 admin, about 15 minutes):**
+
+1. **A SharePoint site** for the QA data, e.g. `https://axisplumbing.sharepoint.com/sites/QA`
+   (a new team site is fine). Everyone who uses the app needs access to it (Members).
+2. **An app registration** in Entra ID (portal.azure.com → App registrations → New):
+   - Name *Axis QA*; accounts in this organisational directory only.
+   - Platform **Single-page application**, redirect URI **`https://darrens-axis.github.io/Apps/`**
+     (the exact address the app is opened at, with the trailing slash).
+   - API permissions → Microsoft Graph → *Delegated*: `User.Read`, `Sites.ReadWrite.All`,
+     `Sites.Manage.All`, `Files.ReadWrite.All` → **Grant admin consent**.
+   - No client secret — the app is a public client and signs in with PKCE.
+   - Note the **Directory (tenant) ID** and **Application (client) ID**.
+3. **Tell the app**, in this GitHub repository → Settings → Secrets and variables →
+   Actions → **Variables** (these are not secrets):
+   - `AXIS_TENANT_ID` — the directory (tenant) id
+   - `AXIS_CLIENT_ID` — the application (client) id
+   - `AXIS_SITE_URL` — the SharePoint site
+   - optional `AXIS_POLL_SECONDS` — how often an open app checks for others' changes (30)
+
+   Then re-run the *Deploy to GitHub Pages* workflow (or push anything). The deploy writes
+   `axis-config.json` beside the app; a committed `public/axis-config.json` works too.
+4. **First sign-in** by someone with owner rights on the site: the app creates the `QA …`
+   lists and the `QA Files` library itself. Then set the **Power Automate flow URL** once in
+   Settings → Microsoft 365 — it is kept in SharePoint for everyone, not in the public app,
+   because the URL carries its own key.
+
+**What people see:** the link opens a *Sign in to Axis QA* screen; they sign in once with
+their work account and stay signed in. Their name comes from the account, and if they have
+a People profile under that email their state and access are filled in. A link opened on a
+new device — from an email, a QR label or a colleague — lands on that record after sign-in
+and the welcome.
+
+**How it stays the same everywhere:** every change is written on the device first (so it
+works with no signal) and sent to SharePoint within about two seconds; open apps check for
+everyone else's changes every 30 seconds, when they come back on screen and when they
+regain signal. A record not on the device yet — a link or a QR label from someone else — is
+fetched on the spot. Each state receives only its own records (national QA receives all);
+people, business units and the organisation settings are shared across states. A device
+does not fetch any state's records until its person has said which state they are in.
+
 ## Microsoft 365: SharePoint and Power Automate
 
-Every record is written to the device first and queued for SharePoint, so the app behaves
-identically with no signal. Set up once, from Settings → Microsoft 365:
-
-1. An Entra ID **single-page application** registration (no secret — PKCE) with delegated
-   `User.Read`, `Sites.ReadWrite.All`, `Files.ReadWrite.All`. Tenant ID and client ID go
-   into Settings.
-2. The SharePoint site URL. **Provision** creates the ten `QA …` lists and the
-   `QA Files` library, and adds any column an upgrade needs. Safe to run again.
-3. **Sync now**, or leave it: the app syncs on coming online, on returning to the tab and
-   every five minutes.
-
 Each list carries the full record as JSON plus plain columns — state, project, status,
-ITC number, cost, profile, plant number, location, last seen — so Power Automate and Power BI filter and total without
-parsing anything. Each state pulls only its own records; national QA pulls all.
+ITC number, cost, profile, plant number, location, last seen, assigned to — so Power
+Automate and Power BI filter and total without parsing anything.
 
-The app also posts events (`itp.completed_by_site`, `itp.hold_point_reached`,
-`penetration.defected`, `defect.raised` …) to a Power Automate **When an HTTP request is
-received** URL. `flows/README.md` sets out the three flows — notify the state QA channel,
-hold point reminders, the scheduled monthly report — with the list columns and the
-request schema, and `flows/notify-state-qa.json` is the first flow's definition.
+A device can also be connected by hand (Settings → Microsoft 365 → *Sync to SharePoint*,
+with the tenant id, client id and site URL, then *Provision SharePoint lists*) — useful for
+trying it out before the organisation config is in place.
 
-Not configured? The app is fully usable on the device, with JSON backup and restore
+The app posts events (`itp.completed_by_site`, `itp.hold_point_reached`, `*.allocated`,
+`defect.raised` …), each naming the people to email, to a Power Automate **When an HTTP
+request is received** URL. `flows/README.md` sets out the flows — email the people, notify
+the state QA channel, hold point reminders, the monthly report — with the list columns and
+the request schema.
+
+Not connected? The app is fully usable on the device, with JSON backup and restore
 between devices.
 
 ## Running it
@@ -231,7 +272,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Fourteen Playwright suites drive the production build in a real browser, including
+Fifteen Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.
@@ -273,6 +314,7 @@ src/
     provision.ts        creates lists, library and columns
     engine.ts           outbox push, state-scoped pull, file upload
     events.ts           Power Automate event feed
+    orgConfig.ts        the organisation's connection, shipped as axis-config.json
   lib/
     xlsx.ts             .xlsx / .csv reader, no dependencies
     autopin.ts          penetration tags + symbols on plan PDFs

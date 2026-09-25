@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useFetchIfMissing } from '../components/useFetchIfMissing'
 import { deleteItp, deletePin, duplicateItp, locateItpIfMissing, locatePin, updateItp, uid, type Located } from '../data/db'
 import { useDrawings, useItp, usePhotos, usePhotosByItem, useProject, useSettings } from '../data/store'
 import type { Drawing, Itp, ItpItem, PlanPin, PlanRegion, Photo, PointType, RegionColour, Settings, TestRecord } from '../data/types'
@@ -65,8 +66,10 @@ export function ItpPage() {
 
   const progress = useMemo(() => (itp ? itpProgress(itp) : null), [itp])
 
+  const fetchingItp = useFetchIfMissing(!itp)
+
   if (!itp || !project || !progress) {
-    return <Empty title="ITP not found" hint="It may have been deleted on this device." />
+    return fetchingItp ? <Empty title="Fetching from SharePoint…" hint="This ITP is not on this device yet." /> : <Empty title="ITP not found" hint="It may have been deleted, or belong to another state." />
   }
 
   const status = deriveStatus(itp)

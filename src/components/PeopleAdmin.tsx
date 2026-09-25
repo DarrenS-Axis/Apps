@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { createPerson, deletePerson, isEmail, updatePerson } from '../data/people'
-import { usePeople, useSettings } from '../data/store'
+import { useFlowUrl, usePeople, useSettings } from '../data/store'
 import { defaultNotify, NOTIFY_KEYS, NOTIFY_LABEL, PERSON_ROLES, STATE_CODES, type NotifyKey, type Person, type StateCode } from '../data/types'
 import { parseCsv } from '../lib/xlsx'
 import { raiseEvent } from '../sync'
@@ -106,7 +106,7 @@ export function PeopleAdmin({ onToast }: { onToast: (m: string) => void }) {
 }
 
 function PersonSheet({ person, defaultState, onClose, onToast }: { person: Person | null; defaultState?: StateCode; onClose: () => void; onToast: (m: string) => void }) {
-  const settings = useSettings()
+  const flow = useFlowUrl()
   const [p, setP] = useState({
     name: person?.name ?? '',
     email: person?.email ?? '',
@@ -158,8 +158,8 @@ function PersonSheet({ person, defaultState, onClose, onToast }: { person: Perso
             <button
               className="btn btn--ghost"
               type="button"
-              disabled={!settings.sync.powerAutomateUrl}
-              title={settings.sync.powerAutomateUrl ? undefined : 'Set the Power Automate flow URL under Microsoft 365 first'}
+              disabled={!flow}
+              title={flow ? undefined : 'Set the Power Automate flow URL under Microsoft 365 first'}
               onClick={async () => {
                 await raiseEvent({
                   event: 'notification.test',

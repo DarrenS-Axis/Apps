@@ -598,6 +598,16 @@ export interface Settings {
 export interface SyncConfig {
   /** 'local' keeps everything on the device; 'sharepoint' syncs to Microsoft 365. */
   mode: 'local' | 'sharepoint'
+  /**
+   * Set from the organisation's axis-config.json, which ships with the app:
+   * every device connects to the same site without anyone typing anything,
+   * and the connection fields are not edited per device.
+   */
+  managed?: boolean
+  /** Organisation config: people must sign in before the app opens. */
+  requireSignIn?: boolean
+  /** Seconds between pulls while the app is open (org config; default 30). */
+  pollSeconds?: number
   /** Entra ID (Azure AD) application registration. */
   tenantId?: string
   clientId?: string
@@ -637,6 +647,21 @@ export const DEFAULT_SETTINGS: Settings = {
   businessUnitIds: [],
   sync: { mode: 'local' },
   updatedAt: 0,
+}
+
+/* ------------------------------------------------------------ organisation */
+
+/**
+ * Settings shared by everyone in the organisation, kept in SharePoint rather
+ * than on each device. The flow URL lives here, not in the public app
+ * config: it carries its own key, and only signed-in staff should see it.
+ */
+export interface OrgSettings {
+  id: 'org'
+  /** Power Automate "When an HTTP request is received" URL for notifications. */
+  powerAutomateUrl?: string
+  createdAt: number
+  updatedAt: number
 }
 
 /* ----------------------------------------------------------------- people */

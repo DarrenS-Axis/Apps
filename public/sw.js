@@ -101,6 +101,23 @@ self.addEventListener('fetch', (e) => {
     return
   }
 
+  // The organisation config: network first, so a change reaches every device
+  // on its next open; the cached copy keeps the app connected offline.
+  if (new URL(req.url).pathname.endsWith('/axis-config.json')) {
+    e.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone()
+            caches.open(CACHE).then((c) => c.put(req, copy))
+          }
+          return res
+        })
+        .catch(() => caches.match(req, { ignoreVary: true }).then((r) => r || Response.error())),
+    )
+    return
+  }
+
   // Everything else: cache first, then fill the cache in the background. This is
   // what picks up the lazily-loaded PDF reader on its first use.
   e.respondWith(

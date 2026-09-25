@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useFetchIfMissing } from '../components/useFetchIfMissing'
 import { db, deleteProject, exportBackup, updateProject } from '../data/db'
 import { useBusinessUnit, useBusinessUnits, useDefects, useDrawings, useItps, useLive, usePenetrations, useProject } from '../data/store'
 import { ConfirmButton, Empty, Field, IconDownload, IconList, IconPdf, IconPlan, IconTrash, Sheet, Toast, useToast } from '../components/ui'
@@ -41,7 +42,8 @@ export function ProjectPage() {
   const review = useMemo(() => reviewdocTotals(defects), [defects])
   const openDefects = defects.filter((d) => d.status !== 'closed').length
 
-  if (!project) return <Empty title="Project not found" hint="It may have been deleted on this device." />
+  const fetching = useFetchIfMissing(!project)
+  if (!project) return fetching ? <Empty title="Fetching from SharePoint…" /> : <Empty title="Project not found" hint="It may have been deleted, or belong to another state." />
 
   const exportJob = async () => {
     const backup = await exportBackup(project.id)

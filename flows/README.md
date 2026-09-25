@@ -79,7 +79,9 @@ This is the one that makes allocation and notification emails go out.
 
 1. **Trigger**: When an HTTP request is received (method POST, schema above).
    Copy the generated URL into the app: Settings → Microsoft 365 → *Power
-   Automate flow URL*. It works without SharePoint sync.
+   Automate flow URL*. Set it once — it is stored in SharePoint (the QA Settings
+   list) for every device, not in the public app. It works without SharePoint
+   sync too, on that one device.
 2. **Condition**: `length(triggerBody()?['notifyEmails'])` is greater than 0.
 3. If yes, **Send an email (V2)** (Office 365 Outlook, from a shared mailbox
    such as qa@ if you like):
@@ -159,6 +161,7 @@ Provisioning from the app creates these on the site, each with `RecordId`,
 | QA Plant            | PlantNo, AxisNo, EquipmentType, BrandModel, Serial, Status, Location, ProjectId, SeenAt, SeenBy, LastTestAt, AssignedTo, AssignedEmail, AssignDue |
 | QA Depots           | Address, Lat, Lng, Radius                                                              |
 | QA People           | Email, Role, Phone, Notify, AllStates, Active                                          |
+| QA Settings         | (one item: the organisation's settings, e.g. the flow URL, in `Payload`)               |
 
 `AssignDue` on the four work lists makes an overdue-work reminder a simple
 scheduled flow: daily, **Get items** where `AssignDue` is before today and the

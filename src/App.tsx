@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ensureBusinessUnits } from './data/db'
 import { useActiveProjectId, useOnline, useOutboxCount, useProject, useSettingsState, useVisibleProjects } from './data/store'
@@ -16,7 +16,8 @@ import { ReviewdocPage } from './pages/ReviewdocPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { PlantItemLink, PlantPage, PlantTagLink } from './pages/PlantPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { isConfigured, startAutoSync } from './sync'
+import { applyOrgConfig, isConfigured, lastReport, refreshAccount, startAutoSync } from './sync'
+import { SignInGate } from './components/SignInGate'
 import { warmQrDecoder } from './lib/qr'
 
 /** Tabs are project-scoped and follow the modules the project runs. */
@@ -92,7 +93,26 @@ function Shell() {
   useEffect(() => {
     void ensureBusinessUnits()
   }, [])
-  useEffect(() => startAutoSync(), [])
+  // The organisation's connection first (it ships with the app), then sync.
+  const [orgReady, setOrgReady] = useState(false)
+  useEffect(() => {
+    let stop: (() => void) | undefined
+    let cancelled = false
+    const guard = window.setTimeout(() => setOrgReady(true), 4000)
+    void applyOrgConfig()
+      .catch(() => false)
+      .then(async (managed) => {
+        if (managed) await refreshAccount().catch(() => undefined)
+        window.clearTimeout(guard)
+        setOrgReady(true)
+        if (!cancelled) stop = startAutoSync()
+      })
+    return () => {
+      cancelled = true
+      window.clearTimeout(guard)
+      stop?.()
+    }
+  }, [])
   useEffect(() => warmQrDecoder(), [])
 
   const match = /^\/project\/([^/]+)/.exec(location.pathname)
@@ -104,6 +124,8 @@ function Shell() {
   // Until a state is chosen there is nothing to show, so every route lands on
   // the welcome screen. Settings stays reachable for the SharePoint setup.
   const needsWelcome = !settings.userName && location.pathname !== '/welcome' && location.pathname !== '/settings'
+  // On the organisation's app, a device opens on its shared data only once signed in.
+  const needsSignIn = settings.sync.managed && settings.sync.requireSignIn && !settings.sync.devToken && !settings.sync.account
 
   const title = project ? project.name : settings.state ? `Axis QA · ${settings.state}` : 'Axis QA'
   const subtitle = project
@@ -117,7 +139,7 @@ function Shell() {
   return (
     <div className="app">
       <header className="appbar">
-        {onHome ? (
+        {onHome || needsSignIn ? (
           <span className="appbar__mark" aria-hidden="true">
             AXIS
           </span>
@@ -133,12 +155,19 @@ function Shell() {
             {!online ? ' · offline' : ''}
           </p>
         </div>
-        {syncing ? (
-          <span className={`syncpill ${pending ? 'is-pending' : ''}`} title={pending ? `${pending} changes waiting for SharePoint` : 'In sync with SharePoint'}>
+        {syncing && !needsSignIn ? (
+          <span
+            className={`syncpill ${pending ? 'is-pending' : ''}`}
+            title={
+              pending
+                ? `${pending} changes waiting for SharePoint`
+                : `In sync with SharePoint${settings.sync.lastSyncAt ? ` · checked ${new Date(lastReport?.at ?? settings.sync.lastSyncAt).toLocaleTimeString()}` : ''}`
+            }
+          >
             {pending ? `${pending} ↑` : '✓'}
           </span>
         ) : null}
-        {routeProjectId && projects.length > 1 ? (
+        {routeProjectId && projects.length > 1 && !needsSignIn ? (
           <select aria-label="Switch project" value={projectId ?? ''} onChange={(e) => navigate(`/project/${e.target.value}`)} style={{ width: 'auto', maxWidth: 170, minHeight: 36 }}>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -148,7 +177,7 @@ function Shell() {
           </select>
         ) : null}
         {/* Project screens have no Settings tab, so the header carries it there. */}
-        {routeProjectId ? (
+        {routeProjectId && !needsSignIn ? (
           <Link className="iconbtn appbar__jobs" to="/settings" aria-label="Settings" title="Settings">
             <IconCog />
           </Link>
@@ -157,8 +186,11 @@ function Shell() {
 
       <main className="main">
         <ErrorBoundary key={location.pathname} area="this screen">
-          {!loaded ? null : needsWelcome ? (
-            <Navigate to="/welcome" replace />
+          {!loaded || !orgReady ? null : needsSignIn ? (
+            <SignInGate siteUrl={settings.sync.siteUrl} />
+          ) : needsWelcome ? (
+            // Keep where they were going: a link opened on a new device lands there after the welcome.
+            <Navigate to="/welcome" replace state={{ from: `${location.pathname}${location.search}` }} />
           ) : (
             <Routes>
               <Route path="/" element={<Navigate to={settings.userName ? '/state' : '/welcome'} replace />} />
@@ -184,7 +216,7 @@ function Shell() {
       </main>
 
       {/* Settings and the report keep the open project's tabs, so one tap gets back to it. */}
-      {location.pathname === '/welcome' ? null : <TabBar projectId={onHome ? undefined : projectId} />}
+      {location.pathname === '/welcome' || needsSignIn ? null : <TabBar projectId={onHome ? undefined : projectId} />}
     </div>
   )
 }

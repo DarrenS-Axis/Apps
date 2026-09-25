@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PeopleAdmin } from '../components/PeopleAdmin'
-import { createBusinessUnit, exportBackup, importBackup, saveSettings, storageEstimate, updateBusinessUnit } from '../data/db'
-import { useBusinessUnits, useOutboxCount, useSettings } from '../data/store'
+import { createBusinessUnit, exportBackup, importBackup, saveOrg, saveSettings, storageEstimate, updateBusinessUnit } from '../data/db'
+import { useBusinessUnits, useFlowUrl, useOutboxCount, useSettings } from '../data/store'
 import { TEMPLATES } from '../data/templates'
 import { FIRE_PROFILES, SCHEDULE_REVISION } from '../data/libraries/fireProfiles'
 import { Field, IconDownload, SignaturePad, Toast, useToast } from '../components/ui'
@@ -293,6 +293,7 @@ function BusinessUnitsAdmin({ state }: { state?: StateCode }) {
 
 function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (m: string) => void }) {
   const pending = useOutboxCount()
+  const flow = useFlowUrl()
   const [busy, setBusy] = useState<'' | 'signin' | 'provision' | 'sync'>('')
   const [report, setReport] = useState<SyncReport | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(Boolean(config.graphBaseUrl || config.devToken))
@@ -334,7 +335,15 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
       </div>
       <div className="card">
         <div className="card__body stack">
-          <label className="row" style={{ gap: 10 }}>
+          {config.managed ? (
+            <div className="banner banner--ok">
+              <span>
+                <strong>Connected for the whole organisation</strong> — {config.siteUrl?.replace(/^https:\/\//, '')}. Everyone who signs in sees the same data;
+                changes go up within seconds and others&apos; arrive every {config.pollSeconds ?? 30} seconds while the app is open.
+              </span>
+            </div>
+          ) : null}
+          <label className="row" style={{ gap: 10 }} hidden={config.managed}>
             <input type="checkbox" style={{ width: 20, height: 20, minHeight: 0 }} checked={config.mode === 'sharepoint'} onChange={(e) => void set({ mode: e.target.checked ? 'sharepoint' : 'local' })} />
             <span>
               <strong className="small">Sync to SharePoint</strong>
@@ -349,7 +358,16 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
             label="Power Automate flow URL (notifications)"
             hint='The "When an HTTP request is received" URL. The app posts an event — with the people to email — when work is allocated, a hold point is reached, an ITP or penetration is completed or defected, a defect is raised or closed, or plant goes missing.'
           >
-            <input type="url" value={config.powerAutomateUrl ?? ''} onChange={(e) => void set({ powerAutomateUrl: e.target.value.trim() })} placeholder="https://prod-….logic.azure.com/workflows/…" />
+            <input
+              type="url"
+              value={flow ?? ''}
+              onChange={async (e) => {
+                // Shared: kept in SharePoint for everyone, not on this device.
+                await saveOrg({ powerAutomateUrl: e.target.value.trim() || undefined })
+                if (config.powerAutomateUrl) await set({ powerAutomateUrl: undefined })
+              }}
+              placeholder="https://prod-….logic.azure.com/workflows/…"
+            />
           </Field>
           <button className="btn btn--ghost btn--sm" type="button" onClick={() => setShowSchema(!showSchema)} style={{ alignSelf: 'flex-start' }}>
             {showSchema ? 'Hide' : 'Show'} the request body JSON schema for the flow
@@ -357,6 +375,8 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
           {showSchema ? <pre className="small mono" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(EVENT_SCHEMA, null, 2)}</pre> : null}
           {config.mode === 'sharepoint' ? (
             <>
+              {config.managed ? null : (
+              <>
               <Field label="SharePoint site URL" hint="The site the QA lists live in, e.g. https://axisplumbing.sharepoint.com/sites/QA">
                 <input type="url" value={config.siteUrl ?? ''} onChange={(e) => void set({ siteUrl: e.target.value.trim() })} placeholder="https://…sharepoint.com/sites/QA" />
               </Field>
@@ -368,6 +388,8 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
                   <input type="text" value={config.clientId ?? ''} onChange={(e) => void set({ clientId: e.target.value.trim() })} placeholder="00000000-0000-…" />
                 </Field>
               </div>
+              </>
+              )}
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 {config.account ? (
                   <>
@@ -384,7 +406,7 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
                 <button className="btn btn--ghost btn--sm" type="button" disabled={busy !== '' || !ready} onClick={() => void run('provision')}>
                   {busy === 'provision' ? 'Creating lists…' : config.provisionedAt ? 'Re-check SharePoint lists' : 'Provision SharePoint lists'}
                 </button>
-                <button className="btn btn--ghost btn--sm" type="button" disabled={busy !== '' || !ready || !config.siteId} onClick={() => void run('sync')}>
+                <button className="btn btn--ghost btn--sm" type="button" disabled={busy !== '' || !ready || (!config.siteId && !config.managed)} onClick={() => void run('sync')}>
                   {busy === 'sync' ? 'Syncing…' : 'Sync now'}
                 </button>
               </div>
@@ -402,10 +424,10 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
                   </div>
                 </div>
               ) : null}
-              <button className="btn btn--ghost btn--sm" type="button" onClick={() => setShowAdvanced(!showAdvanced)} style={{ alignSelf: 'flex-start' }}>
+              <button className="btn btn--ghost btn--sm" type="button" hidden={config.managed} onClick={() => setShowAdvanced(!showAdvanced)} style={{ alignSelf: 'flex-start' }}>
                 {showAdvanced ? 'Hide' : 'Show'} advanced
               </button>
-              {showAdvanced ? (
+              {showAdvanced && !config.managed ? (
                 <div className="field-grid">
                   <Field label="Graph endpoint override" hint="Leave blank for graph.microsoft.com.">
                     <input type="url" value={config.graphBaseUrl ?? ''} onChange={(e) => void set({ graphBaseUrl: e.target.value.trim() || undefined })} />

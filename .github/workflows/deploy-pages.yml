@@ -45,6 +45,30 @@ jobs:
       # `npm run build` runs tsc first, so a type error fails the deploy.
       - run: npm run build
 
+      # The organisation's connection, so every device that opens the site
+      # uses the same SharePoint data after signing in — no per-device setup.
+      # Set these under Settings → Secrets and variables → Actions →
+      # Variables. None of them is a secret: the tenant and client ids
+      # identify the app registration and are sent to every browser anyway.
+      # Without them the app runs per device, as before.
+      - name: Write the organisation config
+        env:
+          AXIS_TENANT_ID: ${{ vars.AXIS_TENANT_ID }}
+          AXIS_CLIENT_ID: ${{ vars.AXIS_CLIENT_ID }}
+          AXIS_SITE_URL: ${{ vars.AXIS_SITE_URL }}
+          AXIS_POLL_SECONDS: ${{ vars.AXIS_POLL_SECONDS }}
+        run: |
+          if [ -n "$AXIS_TENANT_ID" ] && [ -n "$AXIS_CLIENT_ID" ] && [ -n "$AXIS_SITE_URL" ]; then
+            node -e '
+              const c = { tenantId: process.env.AXIS_TENANT_ID, clientId: process.env.AXIS_CLIENT_ID, siteUrl: process.env.AXIS_SITE_URL, requireSignIn: true }
+              if (process.env.AXIS_POLL_SECONDS) c.pollSeconds = Number(process.env.AXIS_POLL_SECONDS)
+              require("fs").writeFileSync("dist/axis-config.json", JSON.stringify(c, null, 2) + "\n")
+            '
+            echo "Organisation config written for $AXIS_SITE_URL"
+          else
+            echo "No AXIS_* variables set — the app runs per device."
+          fi
+
       # Stops GitHub's Jekyll pass from touching the built output.
       - run: touch dist/.nojekyll
 

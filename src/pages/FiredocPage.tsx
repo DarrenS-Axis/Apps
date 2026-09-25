@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
+import { useFetchIfMissing } from '../components/useFetchIfMissing'
 import { createDrawing, createPenetration, db, deletePenetration, importPenetrations, updatePenetration } from '../data/db'
 import { useDrawings, usePenetration, usePenetrations, useProject, useRecordPhotos, useSettings } from '../data/store'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
@@ -67,7 +68,8 @@ export function FiredocPage() {
   }, [pens, drawings])
   const activePlan = drawings.find((d) => d.id === (planId || pinnedDrawings[0]?.id))
 
-  if (!project) return <Empty title="Project not found" />
+  const fetching = useFetchIfMissing(!project)
+  if (!project) return fetching ? <Empty title="Fetching from SharePoint…" /> : <Empty title="Project not found" />
 
   return (
     <>

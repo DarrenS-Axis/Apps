@@ -8,7 +8,9 @@ import type { SyncConfig } from '../data/types'
  * no secret — PKCE does the proving — so the only things to configure are
  * the tenant and the application (client) id, both safe to keep in Settings.
  */
-export const GRAPH_SCOPES = ['User.Read', 'Sites.ReadWrite.All', 'Files.ReadWrite.All']
+// Sites.Manage.All is what creating the lists and adding columns needs; the
+// app asks for it so the first person to open a fresh site sets it up.
+export const GRAPH_SCOPES = ['User.Read', 'Sites.ReadWrite.All', 'Sites.Manage.All', 'Files.ReadWrite.All']
 
 type Msal = typeof import('@azure/msal-browser')
 let msalModule: Promise<Msal> | undefined

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { saveSettings } from '../data/db'
-import { useBusinessUnits, useSettings } from '../data/store'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { db, saveSettings } from '../data/db'
+import { useBusinessUnits, useLive, useSettings } from '../data/store'
 import { Field } from '../components/ui'
 import { STATE_CODES, STATE_NAMES, USER_ROLE_LABEL, type StateCode, type UserRole } from '../data/types'
 
@@ -12,6 +12,9 @@ import { STATE_CODES, STATE_NAMES, USER_ROLE_LABEL, type StateCode, type UserRol
 export function WelcomePage() {
   const settings = useSettings()
   const navigate = useNavigate()
+  // A link opened on a new device: go there once the person has said who they are.
+  const from = (useLocation().state as { from?: string } | null)?.from
+  const target = from && from !== '/' && from !== '/welcome' ? from : '/state'
   const [name, setName] = useState(settings.userName)
   const [initials, setInitials] = useState(settings.userInitials)
   const [company, setCompany] = useState(settings.userCompany)
@@ -20,13 +23,28 @@ export function WelcomePage() {
   const units = useBusinessUnits(state || undefined)
   const [unitIds, setUnitIds] = useState<string[]>(settings.businessUnitIds)
 
+  // Signed in with a work account: the name comes from it, and a People
+  // profile under that email says which state and what access.
+  const account = settings.sync.account
+  const profile = useLive(async () => (account?.username ? db.people.where('email').equals(account.username.toLowerCase()).first() : undefined), [account?.username], undefined)
+  useEffect(() => {
+    if (account?.name && !name) setName(account.name)
+    if (profile) {
+      if (!state) setState(profile.state)
+      if (profile.role === 'National QA' || profile.allStates) setRole('national_qa')
+      else if (profile.role === 'State QA') setRole('state_qa')
+      if (!company && profile.company) setCompany(profile.company)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.name, profile?.id])
+
   const ready = name.trim() && (state || role === 'national_qa')
   const [saved, setSaved] = useState(false)
 
   // The app routes on the stored name, so leave only once the store has it —
   // navigating straight after the write races the live query and bounces back.
   useEffect(() => {
-    if (settings.userName && (saved || !name)) navigate('/state', { replace: true })
+    if (settings.userName && (saved || !name)) navigate(target, { replace: true })
     // Someone who already has a name set does not need this screen; Settings
     // covers changes. Only run this on arrival and on save, not per keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps

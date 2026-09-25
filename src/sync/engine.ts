@@ -34,6 +34,9 @@ const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => (await fetch(dat
 /** Escapes a value for an OData string literal. */
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`
 
+/** Shared by every state: the units, the people directory and the organisation's settings. */
+export const NATIONAL_TABLES: readonly SyncedTable[] = ['businessUnits', 'people', 'org']
+
 const PREFER_UNINDEXED = { Prefer: 'HonorNonIndexedQueriesWarningMayFailRandomly' }
 
 export class SyncEngine {
@@ -156,14 +159,14 @@ export class SyncEngine {
 
   /* ------------------------------------------------------------- pull */
 
-  async pull(report: SyncReport, opts: { since: number; state?: string }): Promise<number> {
+  async pull(report: SyncReport, opts: { since: number; state?: string; tables?: readonly SyncedTable[] }): Promise<number> {
     let newest = opts.since
-    for (const table of SYNCED_TABLES) {
+    for (const table of opts.tables ?? SYNCED_TABLES) {
       const listId = await this.listId(table)
       const filters = [`fields/UpdatedAt gt ${opts.since}`]
       // Business units and people are national (national QA is in the
       // directory of every state); everything else is a state's own.
-      if (opts.state && table !== 'businessUnits' && table !== 'people') filters.push(`fields/State eq ${lit(opts.state)}`)
+      if (opts.state && !NATIONAL_TABLES.includes(table)) filters.push(`fields/State eq ${lit(opts.state)}`)
       const items = await this.graph.all<SpItem>(
         `/sites/${this.siteId}/lists/${listId}/items?$expand=fields&$filter=${encodeURIComponent(filters.join(' and '))}`,
         PREFER_UNINDEXED,

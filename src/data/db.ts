@@ -9,6 +9,7 @@ import type {
   ItpMaterial,
   OutboxEntry,
   Penetration,
+  OrgSettings,
   Person,
   Photo,
   PlantItem,
@@ -41,6 +42,7 @@ class QaDatabase extends Dexie {
   plant!: Table<PlantItem, string>
   depots!: Table<Depot, string>
   people!: Table<Person, string>
+  org!: Table<OrgSettings, string>
   settings!: Table<Settings, string>
   outbox!: Table<OutboxEntry, string>
   remoteIds!: Table<{ id: string; spId: string }, string>
@@ -110,6 +112,10 @@ class QaDatabase extends Dexie {
     this.version(4).stores({
       people: 'id, state, name, email',
     })
+    // Organisation-wide settings, shared through SharePoint.
+    this.version(5).stores({
+      org: 'id',
+    })
   }
 }
 
@@ -123,7 +129,7 @@ export const now = (): number => Date.now()
 /* --------------------------------------------------------------- outbox */
 
 /** Tables that reach SharePoint. Settings and the outbox itself never leave the device. */
-export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots', 'people'] as const
+export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots', 'people', 'org'] as const
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
 
 /**
@@ -151,8 +157,29 @@ function queue(table: SyncedTable, recordId: string, op: OutboxEntry['op']): voi
   // the outbox, so the entry is written once that transaction has committed —
   // and only then, so a rolled-back write never leaves a phantom in the queue.
   const trans = Dexie.currentTransaction
-  if (trans) trans.on('complete', () => void db.outbox.put(entry))
-  else void db.outbox.put(entry)
+  const write = () => void db.outbox.put(entry).then(() => outboxListener?.())
+  if (trans) trans.on('complete', write)
+  else write()
+}
+
+/**
+ * Told whenever a change is queued, so the sync layer can send it within
+ * seconds instead of waiting for its next round.
+ */
+let outboxListener: (() => void) | undefined
+export function onOutboxChange(fn: () => void): void {
+  outboxListener = fn
+}
+
+/* ---------------------------------------------------------- organisation */
+
+export async function loadOrg(): Promise<OrgSettings | undefined> {
+  return db.org.get('org')
+}
+
+export async function saveOrg(patch: Partial<OrgSettings>): Promise<void> {
+  const current = await db.org.get('org')
+  await db.org.put({ createdAt: now(), ...current, ...patch, id: 'org', updatedAt: now() })
 }
 
 for (const name of SYNCED_TABLES) {

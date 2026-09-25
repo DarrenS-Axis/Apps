@@ -52,7 +52,7 @@ await a.page.waitForTimeout(1500)
 console.log('provision:', await toastText(a.page))
 let g = await graphState()
 console.log('lists on site:', g.lists.map((l) => l.displayName).join(', '))
-if (g.lists.length !== 11) errors.push(`Expected 11 lists (10 + library), got ${g.lists.length}`)
+if (g.lists.length !== 12) errors.push(`Expected 12 lists (11 + library), got ${g.lists.length}`)
 
 await a.page.getByRole('link', { name: 'Projects', exact: true }).click()
 await a.page.waitForTimeout(500)

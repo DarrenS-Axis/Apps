@@ -72,6 +72,15 @@ console or page error along the way.
   the slice of Graph the sync layer uses): provision the eleven lists, write records (a plant
   item among them) on one device and push them, pull them onto a fresh NSW device, confirm
   a QLD device receives none of them and national QA receives all of them and reports on them.
+- `smoke-live.mjs` — everyone on the same data. An organisation config (pointing at
+  `mock-graph.mjs`) is served as `axis-config.json`, and devices that were never set up
+  connect by themselves: A's project, penetration, plant item and the shared flow URL reach
+  SharePoint in about a second with nobody pressing Sync (the lists are created on the way);
+  a brand-new device opened on an email link holds nothing state-owned until it says its
+  state, then lands on the penetration after the welcome, and a QR link opens the plant
+  item it never had; an edit on one phone shows on two others within seconds; Queensland
+  receives none of it; and without the test token the app shows *Sign in to Axis QA* and
+  nothing else.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 
