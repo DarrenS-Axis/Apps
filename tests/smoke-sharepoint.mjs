@@ -40,6 +40,17 @@ async function device(name, { state, role = 'Site' }) {
   return { ctx, page }
 }
 
+/** Waits for the site to be connected — on a loaded machine that takes longer than a fixed pause. */
+async function provisioned(page, name) {
+  const ok = await page
+    .locator('.toast', { hasText: 'SharePoint ready' })
+    .waitFor({ timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!ok) errors.push(`${name}: provisioning did not finish — ${(await page.locator('.toast').allInnerTexts()).join(' ')}`)
+  await page.getByRole('button', { name: 'Sync now' }).waitFor()
+}
+
 const toastText = async (page) => {
   await page.waitForTimeout(400)
   return (await page.locator('.toast').allInnerTexts()).join(' ')
@@ -126,7 +137,7 @@ if (!/0 sent/.test(second)) errors.push(`Second sync should send nothing: ${seco
 // ---- Device B: fresh NSW device pulls everything.
 const b = await device('Ben Kennedy', { state: 'NSW', role: 'State QA' })
 await b.page.getByRole('button', { name: /Provision SharePoint lists|Re-check/ }).click()
-await b.page.waitForTimeout(1200)
+await provisioned(b.page, 'B')
 await b.page.getByRole('button', { name: 'Sync now' }).click()
 await b.page.waitForTimeout(2500)
 console.log('sync B:', await toastText(b.page))
@@ -143,7 +154,7 @@ if (!(await b.page.locator('.listitem', { hasText: 'NSW-0001' }).count())) error
 // ---- Device C: QLD site sees nothing from NSW.
 const c = await device('Sam Ortiz', { state: 'QLD' })
 await c.page.getByRole('button', { name: /Provision SharePoint lists|Re-check/ }).click()
-await c.page.waitForTimeout(1200)
+await provisioned(c.page, 'C')
 await c.page.getByRole('button', { name: 'Sync now' }).click()
 await c.page.waitForTimeout(2000)
 console.log('sync C:', await toastText(c.page))
@@ -159,6 +170,7 @@ if (await c.page.locator('.listitem').count()) errors.push('A QLD device receive
 // ---- Device D: national QA in VIC sees NSW.
 const d = await device('National QA', { state: 'VIC', role: 'National QA' })
 await d.page.getByRole('button', { name: /Provision SharePoint lists|Re-check/ }).click()
+await provisioned(d.page, 'D')
 await d.page.waitForTimeout(1200)
 await d.page.getByRole('button', { name: 'Sync now' }).click()
 await d.page.waitForTimeout(2000)
