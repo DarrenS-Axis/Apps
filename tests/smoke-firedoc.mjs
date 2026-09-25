@@ -198,7 +198,7 @@ if (pens.F0001.autoPinned) errors.push('Moving an autopinned penetration should 
 
 // --- 4. Completion stamps the device position when none was recorded.
 if (pens.F0001.lat !== undefined) errors.push('Imported penetrations should not have a location until someone is there')
-await s1.getByRole('button', { name: 'Allocate' }).click()
+await s1.getByRole('button', { name: 'Allocate', exact: true }).click()
 await page.waitForTimeout(400)
 await page.locator('.sheet').last().locator('.listitem').first().click()
 await page.waitForTimeout(400)

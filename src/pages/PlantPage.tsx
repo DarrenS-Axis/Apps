@@ -961,7 +961,7 @@ function MovePanel({
             Cancel
           </button>
           <button className="btn btn--sm" type="button" disabled={!canSave || saving} onClick={save}>
-            Save
+            Save move
           </button>
         </div>
       </div>
