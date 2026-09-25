@@ -498,6 +498,31 @@ textarea:focus {
   color: var(--accent);
 }
 
+.chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.chip-toggle {
+  border: 1px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 11px;
+}
+.chip-toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 /* ------------------------------------------------------------ progress */
 
 .bar {
@@ -1166,6 +1191,12 @@ table.data th {
 }
 .tabbar--5 {
   grid-template-columns: repeat(5, 1fr);
+}
+.tabbar--6 {
+  grid-template-columns: repeat(6, 1fr);
+}
+.tabbar--6 a {
+  font-size: 10.5px;
 }
 
 /* First run */

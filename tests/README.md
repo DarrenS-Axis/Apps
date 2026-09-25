@@ -56,6 +56,18 @@ console or page error along the way.
   what was seen. The map pins every located item (checked against the store), a pin's
   list opens the item, and *Show on map* draws the drill's trail from the job and back.
   The yard's address lookup and the map tiles (OpenStreetMap) are answered by the test.
+- `smoke-roomdata.mjs` — room data and tech data submissions. Builds an FF&E workbook
+  (a sanitary & tapware schedule and a room data sheet with a project-wide `TBC` line) and
+  an A3 FF&E plan: rooms labelled name-over-number, schedule tags in them, another trade's
+  tag, a closed cleaner's room labelled outside its walls, a basin over the wall from one
+  room's label inside the next room, and a 1:50 enlargement of two rooms with a WC of its
+  own. Imports the schedule (and again, without duplicates), scans the plan — seven tags,
+  one to confirm offering both rooms, the enlargement not counted, the drawing number read
+  from the sheet — confirms the room, and checks each room's count against the room data
+  it was reconciled with; a second scan adds nothing. Then the room's tapware, the plan,
+  the room data PDF and Excel export, a submission numbered `HYD-AXIS-SMP-001` with its
+  location filled from the rooms, a data sheet attached (the form plus the sheet in the
+  PDF) and the architect's response, and *Draft one per sample ref*.
 - `smoke-people.mjs` — people and notifications, with the test standing in for the Power
   Automate flow. People added by hand and by CSV (lower-cased emails, state column, rows
   with no email skipped); *Send test* reaches one person. A penetration allocated to Joe

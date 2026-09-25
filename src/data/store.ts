@@ -1,7 +1,7 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { db, loadSettings } from './db'
-import type { BusinessUnit, Defect, Depot, Drawing, Itp, OrgSettings, Penetration, Person, Photo, PlantItem, Project, Settings, StateCode } from './types'
+import type { BusinessUnit, Defect, Depot, Drawing, FfeType, Itp, OrgSettings, Penetration, Person, Photo, PlantItem, Project, Room, RoomItem, Settings, StateCode, Submission } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 /**
@@ -106,6 +106,33 @@ export function useDefects(projectId?: string): Defect[] {
 
 export function useDefect(id?: string): Defect | undefined {
   return useLive(() => (id ? db.defects.get(id) : undefined), [id], undefined)
+}
+
+const EMPTY_FFE: FfeType[] = []
+const EMPTY_ROOMS: Room[] = []
+const EMPTY_ROOM_ITEMS: RoomItem[] = []
+const EMPTY_SUBMISSIONS: Submission[] = []
+
+/** The project's FF&E schedule, in schedule order. */
+export function useFfeTypes(projectId?: string): FfeType[] {
+  return useLive(() => (projectId ? db.ffeTypes.where('projectId').equals(projectId).sortBy('order') : []), [projectId], EMPTY_FFE)
+}
+
+/** The project's rooms, in room-number order. */
+export function useRooms(projectId?: string): Room[] {
+  return useLive(
+    async () => (projectId ? (await db.rooms.where('projectId').equals(projectId).toArray()).sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })) : []),
+    [projectId],
+    EMPTY_ROOMS,
+  )
+}
+
+export function useRoomItems(projectId?: string): RoomItem[] {
+  return useLive(() => (projectId ? db.roomItems.where('projectId').equals(projectId).toArray() : []), [projectId], EMPTY_ROOM_ITEMS)
+}
+
+export function useSubmissions(projectId?: string): Submission[] {
+  return useLive(() => (projectId ? db.submissions.where('projectId').equals(projectId).sortBy('number') : []), [projectId], EMPTY_SUBMISSIONS)
 }
 
 /** The organisation's shared settings, from SharePoint. */

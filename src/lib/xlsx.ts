@@ -120,7 +120,9 @@ export async function readXlsx(file: Blob): Promise<Sheet[]> {
           const v = c.getElementsByTagName('v')[0]?.textContent ?? ''
           value = type === 's' ? (shared[Number(v)] ?? '') : v
         }
-        cells[idx] = value.replace(/\s+/g, ' ').trim()
+        // Line breaks inside a cell are kept: a schedule puts the item on the first
+        // line and the product on the next.
+        cells[idx] = value.replace(/[ \t\r]+/g, ' ').replace(/ *\n */g, '\n').trim()
       }
       for (let i = 0; i < cells.length; i++) cells[i] ??= ''
       rows.push(cells)

@@ -34,6 +34,20 @@ export function ProjectPage() {
     0,
   )
 
+  const roomData = useLive(
+    async () => {
+      if (!projectId || !project?.modules.roomdata) return { rooms: 0, items: 0, subs: 0 }
+      const [rooms, items, subs] = await Promise.all([
+        db.rooms.where('projectId').equals(projectId).count(),
+        db.roomItems.where('projectId').equals(projectId).toArray(),
+        db.submissions.where('projectId').equals(projectId).count(),
+      ])
+      return { rooms, items: items.reduce((n, i) => n + (i.qty || 0), 0), subs }
+    },
+    [projectId, project?.modules.roomdata],
+    { rooms: 0, items: 0, subs: 0 },
+  )
+
   // Plant the register has on this job.
   const plantHere = useLive(() => (projectId ? db.plant.where('projectId').equals(projectId).filter((p) => p.status === 'on_site').count() : 0), [projectId], 0)
 
@@ -106,6 +120,17 @@ export function ProjectPage() {
             <span className="module__facts">
               <span>{review.qty} raised · {aud(review.value)}</span>
               <span>{defects.filter((d) => d.status === 'rectified').length} awaiting review</span>
+            </span>
+          </Link>
+        ) : null}
+        {project.modules.roomdata ? (
+          <Link className="module" to={`/project/${project.id}/rooms`}>
+            <span className="module__name">Room data</span>
+            <span className="module__big">{roomData.rooms}</span>
+            <span className="module__sub">rooms</span>
+            <span className="module__facts">
+              <span>{roomData.items} fixtures placed</span>
+              <span>{roomData.subs} tech data submissions</span>
             </span>
           </Link>
         ) : null}
@@ -308,7 +333,7 @@ function EditProject({ projectId, onClose, onSaved }: { projectId: string; onClo
           <div className="row" style={{ gap: 14 }}>
             {(Object.keys(MODULE_LABEL) as ModuleKey[]).map((m) => (
               <label key={m} className="row" style={{ gap: 8 }}>
-                <input type="checkbox" style={{ width: 20, height: 20, minHeight: 0 }} checked={form.modules[m]} onChange={(e) => setForm({ ...form, modules: { ...form.modules, [m]: e.target.checked } })} />
+                <input type="checkbox" style={{ width: 20, height: 20, minHeight: 0 }} checked={Boolean(form.modules[m])} onChange={(e) => setForm({ ...form, modules: { ...form.modules, [m]: e.target.checked } })} />
                 <span>{MODULE_LABEL[m]}</span>
               </label>
             ))}

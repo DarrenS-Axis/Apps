@@ -139,6 +139,8 @@ export interface ProjectModules {
   controldoc: boolean
   firedoc: boolean
   reviewdoc: boolean
+  /** Room data schedules and tech data submissions. Optional: projects made before it existed have none. */
+  roomdata?: boolean
 }
 
 export type ModuleKey = keyof ProjectModules
@@ -147,6 +149,7 @@ export const MODULE_LABEL: Record<ModuleKey, string> = {
   controldoc: 'Controldoc',
   firedoc: 'Firedoc',
   reviewdoc: 'Reviewdoc',
+  roomdata: 'Room data',
 }
 
 /* ---------------------------------------------------------------- project */
@@ -1027,4 +1030,158 @@ export interface PlantItem extends Allocation {
   history: PlantMove[]
   createdAt: number
   updatedAt: number
+}
+
+/* -------------------------------------------------------------- room data */
+
+/**
+ * One line of the FF&E schedule — a sanitary fixture or its tapware, as the
+ * Sanitary & Tapware Schedule lists them: "HB1 Hand Basin - Clinical, Caroma
+ * Care 600 … White", or "HB1 - Basin Mixer, Enware Aquablend SQX …".
+ */
+export interface FfeType {
+  id: string
+  projectId: string
+  /** The tag on the drawings — "HB1", "WC2", "SSEW" — or the tapware code "HB1 - Basin Mixer". */
+  code: string
+  kind: 'fixture' | 'tapware' | 'other'
+  /**
+   * Fixture codes this line goes with. A tapware line goes with its fixture
+   * ("HB1 - Basin Mixer" with HB1), so every HB1 placed brings its mixer.
+   */
+  goesWith: string[]
+  /** "Hand Basin - Clinical". */
+  name: string
+  /** Product, code and notes: "Caroma Care 600 wall basin … Code: 873100W". */
+  description: string
+  finish: string
+  /** Sample / submission reference, e.g. "SAF-HYD102", or its status ("Not yet submitted"). */
+  sampleRef: string
+  /** Quantity the schedule states, to check against what is placed. */
+  scheduledQty?: number
+  /** Where it is fixed when not on the drawings: "In wall", "Project wide". */
+  inWall?: string
+  order: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** A room, as the architectural drawings number and name it: "HOT LAB 04A.G.03". */
+export interface Room {
+  id: string
+  projectId: string
+  number: string
+  name: string
+  level?: string
+  /** Where its label sits on a drawing (0–1), when it was read from one. */
+  drawingId?: string
+  x?: number
+  y?: number
+  notes?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * A fixture in a room: found as a tag on the plan (with its pin), or added
+ * by hand for items the drawings do not tag. Its tapware follows from the
+ * schedule.
+ */
+export interface RoomItem {
+  id: string
+  projectId: string
+  /** Empty for a project-wide item (TMVs and the like). */
+  roomId?: string
+  /** Fixture code from the schedule, e.g. "HB1". */
+  code: string
+  qty: number
+  drawingId?: string
+  x?: number
+  y?: number
+  source: 'plan' | 'manual' | 'import'
+  /** Why the room is in doubt, until someone confirms it. */
+  check?: string
+  /** Another room the plan scan thought likely. */
+  altRoomId?: string
+  note?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type ReviewStatus = '' | 'approved' | 'approved_comments' | 'rejected'
+
+export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
+  '': 'Awaiting response',
+  approved: 'Approved',
+  approved_comments: 'Approved subject to comments',
+  rejected: 'Rejected',
+}
+
+/** One reviewer's response on a sample submission form. */
+export interface SubmissionReview {
+  name?: string
+  company?: string
+  date?: string
+  status: ReviewStatus
+  comments?: string
+  signature?: string
+}
+
+export type SubmissionReviewer = 'client' | 'architect' | 'consultant'
+
+export const SUBMISSION_REVIEWERS: { key: SubmissionReviewer; label: string }[] = [
+  { key: 'client', label: 'Client / Client Representative' },
+  { key: 'architect', label: 'Architect' },
+  { key: 'consultant', label: 'Consultant' },
+]
+
+/**
+ * A tech data / sample submission: the builder's Sample Submission Form with
+ * the manufacturer's data sheets behind it.
+ */
+export interface Submission {
+  id: string
+  projectId: string
+  /** Our sample number, e.g. "HYD-AXIS-SMP-001" (SC / ALA Sample No.). */
+  number: string
+  /** The builder's sample number, e.g. "001". */
+  builderNo?: string
+  dateSubmitted?: string
+  discipline: string
+  specified: 'YES' | 'NO' | 'ALTERNATIVE'
+  supplier: string
+  photoAttached: string
+  /** Rooms it is in, from the room data. */
+  location: string
+  techDataIncluded: boolean
+  /** Sample title — the codes, e.g. "HB1, HB1 - Basin Mixer". */
+  title: string
+  description: string
+  /** Schedule lines this submission covers. */
+  ffeTypeIds: string[]
+  attachments: Attachment[]
+  reviews: Partial<Record<SubmissionReviewer, SubmissionReview>>
+  generalComments?: string
+  madeBy?: string
+  madeDate?: string
+  submittedAt?: number
+  createdAt: number
+  updatedAt: number
+}
+
+/** Where a submission stands, from its responses. */
+export function submissionStatus(s: Submission): 'draft' | 'submitted' | 'approved' | 'approved_comments' | 'rejected' {
+  const rs = Object.values(s.reviews).map((r) => r?.status).filter(Boolean) as ReviewStatus[]
+  if (rs.includes('rejected')) return 'rejected'
+  if (rs.includes('approved_comments')) return 'approved_comments'
+  if (rs.length && rs.every((r) => r === 'approved')) return 'approved'
+  return s.submittedAt || s.dateSubmitted ? 'submitted' : 'draft'
+}
+
+export const SUBMISSION_STATUS_LABEL: Record<ReturnType<typeof submissionStatus>, string> = {
+  draft: 'Draft',
+  submitted: 'Submitted',
+  approved: 'Approved',
+  approved_comments: 'Approved with comments',
+  rejected: 'Rejected',
 }

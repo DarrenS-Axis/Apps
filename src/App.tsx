@@ -13,6 +13,7 @@ import { DrawingsPage } from './pages/DrawingsPage'
 import { PhotosPage } from './pages/PhotosPage'
 import { FiredocPage } from './pages/FiredocPage'
 import { ReviewdocPage } from './pages/ReviewdocPage'
+import { RoomsPage } from './pages/RoomsPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { PlantItemLink, PlantPage, PlantTagLink } from './pages/PlantPage'
 import { SettingsPage } from './pages/SettingsPage'
@@ -52,6 +53,7 @@ function TabBar({ projectId }: { projectId?: string }) {
     ...(project.modules.controldoc ? [{ to: `${base}/itps`, label: 'Controldoc', Icon: IconList }] : []),
     ...(project.modules.firedoc ? [{ to: `${base}/firedoc`, label: 'Firedoc', Icon: IconFire }] : []),
     ...(project.modules.reviewdoc ? [{ to: `${base}/reviewdoc`, label: 'Reviewdoc', Icon: IconReview }] : []),
+    ...(project.modules.roomdata ? [{ to: `${base}/rooms`, label: 'Rooms', Icon: IconRooms }] : []),
     { to: `${base}/drawings`, label: 'Plans', Icon: IconPlan },
   ]
   return (
@@ -74,6 +76,11 @@ const IconFire = () => (
 const IconTools = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.4 2.4-2.6-.4-.4-2.6z" />
+  </svg>
+)
+const IconRooms = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 4h16v16H4zM4 12h7v8M11 4v5M15 12h5" />
   </svg>
 )
 const IconReview = () => (
@@ -131,10 +138,10 @@ function Shell() {
 
   const title = project ? project.name : settings.state ? `Axis QA · ${settings.state}` : 'Axis QA'
   const subtitle = project
-    ? [project.projectNumber, project.client].filter(Boolean).join(' · ') || 'Controldoc · Firedoc · Reviewdoc'
+    ? [project.projectNumber, project.client].filter(Boolean).join(' · ') || 'Controldoc · Firedoc · Reviewdoc · Room data'
     : settings.role === 'national_qa'
       ? 'National QA'
-      : 'Controldoc · Firedoc · Reviewdoc'
+      : 'Controldoc · Firedoc · Reviewdoc · Room data'
   const syncing = isConfigured(settings.sync)
   const onHome = location.pathname === '/state' || location.pathname === '/welcome' || location.pathname.startsWith('/plant')
 
@@ -208,6 +215,7 @@ function Shell() {
               <Route path="/project/:projectId/itp/:itpId" element={<ItpPage />} />
               <Route path="/project/:projectId/firedoc" element={<FiredocPage />} />
               <Route path="/project/:projectId/reviewdoc" element={<ReviewdocPage />} />
+              <Route path="/project/:projectId/rooms" element={<RoomsPage />} />
               <Route path="/project/:projectId/drawings" element={<DrawingsPage />} />
               <Route path="/project/:projectId/photos" element={<PhotosPage />} />
               <Route path="/plant" element={<PlantPage />} />

@@ -1,6 +1,6 @@
 import type { SyncedTable } from '../data/db'
-import type { Defect, Depot, Drawing, Itp, Penetration, Person, Photo, PlantItem, Project } from '../data/types'
-import { PLANT_STATUS_LABEL, QA_STATUS_LABEL } from '../data/types'
+import type { Defect, Depot, Drawing, FfeType, Itp, Penetration, Person, Photo, PlantItem, Project, Room, RoomItem, Submission } from '../data/types'
+import { PLANT_STATUS_LABEL, QA_STATUS_LABEL, submissionStatus, SUBMISSION_STATUS_LABEL } from '../data/types'
 
 /**
  * How each local table is laid out in SharePoint.
@@ -163,6 +163,33 @@ export const LISTS: ListDef[] = [
     columns: [...common, { name: 'Address', type: 'text' }, { name: 'Lat', type: 'number' }, { name: 'Lng', type: 'number' }, { name: 'Radius', type: 'number' }],
   },
   { table: 'org', displayName: 'QA Settings', columns: [...common] },
+  {
+    table: 'ffeTypes',
+    displayName: 'QA FFE Schedule',
+    columns: [...common, { name: 'ProjectId', type: 'text', indexed: true }, { name: 'Code', type: 'text' }, { name: 'FixtureName', type: 'text' }, { name: 'SampleRef', type: 'text' }, { name: 'Finish', type: 'text' }],
+  },
+  {
+    table: 'rooms',
+    displayName: 'QA Rooms',
+    columns: [...common, { name: 'ProjectId', type: 'text', indexed: true }, { name: 'RoomNo', type: 'text' }, { name: 'RoomName', type: 'text' }, { name: 'Level', type: 'text' }],
+  },
+  {
+    table: 'roomItems',
+    displayName: 'QA Room Items',
+    columns: [...common, { name: 'ProjectId', type: 'text', indexed: true }, { name: 'RoomId', type: 'text' }, { name: 'Code', type: 'text' }, { name: 'Qty', type: 'number' }, { name: 'Check', type: 'text' }],
+  },
+  {
+    table: 'submissions',
+    displayName: 'QA Submissions',
+    columns: [
+      ...common,
+      { name: 'ProjectId', type: 'text', indexed: true },
+      { name: 'SampleNo', type: 'text' },
+      { name: 'SampleTitle', type: 'text' },
+      { name: 'Status', type: 'text', indexed: true },
+      { name: 'DateSubmitted', type: 'text' },
+    ],
+  },
   {
     table: 'people',
     displayName: 'QA People',
@@ -344,6 +371,40 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         AssignedTo: p.assignedTo ?? '',
         AssignedEmail: p.assignedEmail ?? '',
         AssignDue: p.assignDue ?? '',
+      })
+      break
+    }
+    case 'ffeTypes': {
+      const t = record as unknown as FfeType
+      Object.assign(fields, { Title: t.code, ProjectId: t.projectId, Code: t.code, FixtureName: t.name, SampleRef: t.sampleRef, Finish: t.finish })
+      break
+    }
+    case 'rooms': {
+      const r = record as unknown as Room
+      Object.assign(fields, { Title: `${r.number} ${r.name}`.trim(), ProjectId: r.projectId, RoomNo: r.number, RoomName: r.name, Level: r.level ?? '' })
+      break
+    }
+    case 'roomItems': {
+      const i = record as unknown as RoomItem
+      Object.assign(fields, { Title: i.code, ProjectId: i.projectId, RoomId: i.roomId ?? '', Code: i.code, Qty: i.qty, Check: i.check ?? '' })
+      break
+    }
+    case 'submissions': {
+      const sub = record as unknown as Submission
+      Object.assign(fields, {
+        Title: sub.number,
+        ProjectId: sub.projectId,
+        SampleNo: sub.number,
+        SampleTitle: sub.title,
+        Status: SUBMISSION_STATUS_LABEL[submissionStatus(sub)],
+        DateSubmitted: sub.dateSubmitted ?? '',
+      })
+      // Tech data sheets go to the library, like ITP attachments.
+      payload.attachments = (sub.attachments ?? []).map((a) => {
+        if (!a.data) return a
+        const path = `submissions/${sub.projectId}/${sub.id}/${a.id}-${a.name}`
+        binaries.push({ path, dataUrl: a.data })
+        return { ...a, data: undefined, url: path }
       })
       break
     }

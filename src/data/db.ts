@@ -9,8 +9,12 @@ import type {
   ItpMaterial,
   OutboxEntry,
   Penetration,
+  FfeType,
   OrgSettings,
   Person,
+  Room,
+  RoomItem,
+  Submission,
   Photo,
   PlantItem,
   Project,
@@ -43,6 +47,10 @@ class QaDatabase extends Dexie {
   depots!: Table<Depot, string>
   people!: Table<Person, string>
   org!: Table<OrgSettings, string>
+  ffeTypes!: Table<FfeType, string>
+  rooms!: Table<Room, string>
+  roomItems!: Table<RoomItem, string>
+  submissions!: Table<Submission, string>
   settings!: Table<Settings, string>
   outbox!: Table<OutboxEntry, string>
   remoteIds!: Table<{ id: string; spId: string }, string>
@@ -116,6 +124,13 @@ class QaDatabase extends Dexie {
     this.version(5).stores({
       org: 'id',
     })
+    // Room data schedules and tech data submissions, per project.
+    this.version(6).stores({
+      ffeTypes: 'id, projectId, code',
+      rooms: 'id, projectId, number',
+      roomItems: 'id, projectId, roomId, drawingId, code',
+      submissions: 'id, projectId, number',
+    })
   }
 }
 
@@ -129,7 +144,7 @@ export const now = (): number => Date.now()
 /* --------------------------------------------------------------- outbox */
 
 /** Tables that reach SharePoint. Settings and the outbox itself never leave the device. */
-export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots', 'people', 'org'] as const
+export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots', 'people', 'org', 'ffeTypes', 'rooms', 'roomItems', 'submissions'] as const
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
 
 /**
@@ -211,7 +226,17 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
  * renamed there is newer than any seed, so it wins on every device, and a
  * fresh device cannot push the defaults back over it.
  */
-export async function ensureBusinessUnits(): Promise<void> {
+let ensuring: Promise<void> | undefined
+
+/** Once at a time: two callers at start-up would otherwise both add the same seeds. */
+export function ensureBusinessUnits(): Promise<void> {
+  ensuring ??= seedMissing().finally(() => {
+    ensuring = undefined
+  })
+  return ensuring
+}
+
+async function seedMissing(): Promise<void> {
   // Seeds added in later releases (SA, the depots) reach devices that were
   // set up before them: only ids that are missing are written.
   const haveUnits = new Set(await db.businessUnits.toCollection().primaryKeys())
@@ -267,7 +292,7 @@ export async function createProject(input: Partial<Project> & { businessUnitId: 
     clientLogo: input.clientLogo,
     stage: input.stage ?? '',
     marking: input.marking ?? '',
-    modules: input.modules ?? { controldoc: true, firedoc: true, reviewdoc: true },
+    modules: input.modules ?? { controldoc: true, firedoc: true, reviewdoc: true, roomdata: true },
     locRefScheme: input.locRefScheme,
     createdAt: now(),
     updatedAt: now(),
@@ -287,7 +312,8 @@ export async function updateProject(id: string, patch: Partial<Project>): Promis
 /** Removes a project together with every drawing, record and photo under it. */
 export async function deleteProject(id: string): Promise<void> {
   const itps = await db.itps.where('projectId').equals(id).toArray()
-  await db.transaction('rw', [db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos], async () => {
+  await db.transaction('rw', [db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.ffeTypes, db.rooms, db.roomItems, db.submissions], async () => {
+    for (const t of [db.ffeTypes, db.rooms, db.roomItems, db.submissions]) await t.where('projectId').equals(id).delete()
     for (const itp of itps) await db.photos.where('itpId').equals(itp.id).delete()
     const pens = await db.penetrations.where('projectId').equals(id).primaryKeys()
     for (const pen of pens) await db.photos.where('penetrationId').equals(pen).delete()
@@ -334,7 +360,7 @@ export async function updateDrawing(id: string, patch: Partial<Drawing>): Promis
  * data and lose only their position.
  */
 export async function deleteDrawing(id: string): Promise<void> {
-  await db.transaction('rw', db.drawings, db.itps, db.penetrations, db.defects, db.photos, async () => {
+  await db.transaction('rw', [db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.roomItems, db.rooms], async () => {
     const affected = await db.itps
       .filter(
         (i) =>
@@ -361,6 +387,8 @@ export async function deleteDrawing(id: string): Promise<void> {
       for (const ph of photos) await db.photos.update(ph.id, { pinId: undefined })
     }
     await db.penetrations.where('drawingId').equals(id).modify({ drawingId: undefined, x: undefined, y: undefined, autoPinned: false })
+    await db.roomItems.where('drawingId').equals(id).modify({ drawingId: undefined, x: undefined, y: undefined })
+    await db.rooms.filter((r) => r.drawingId === id).modify({ drawingId: undefined, x: undefined, y: undefined })
     await db.defects.where('drawingId').equals(id).modify({ drawingId: undefined, x: undefined, y: undefined })
     await db.drawings.delete(id)
   })
@@ -682,6 +710,10 @@ export interface Backup {
   plant?: PlantItem[]
   depots?: Depot[]
   people?: Person[]
+  ffeTypes?: FfeType[]
+  rooms?: Room[]
+  roomItems?: RoomItem[]
+  submissions?: Submission[]
 }
 
 /**
@@ -698,6 +730,11 @@ export async function exportBackup(projectId?: string): Promise<Backup> {
   const itps = (await db.itps.toArray()).filter((i) => ids.has(i.projectId))
   const penetrations = (await db.penetrations.toArray()).filter((p) => ids.has(p.projectId))
   const defects = (await db.defects.toArray()).filter((d) => ids.has(d.projectId))
+  const inProjects = <T extends { projectId: string }>(list: T[]) => list.filter((r) => ids.has(r.projectId))
+  const ffeTypes = inProjects(await db.ffeTypes.toArray())
+  const rooms = inProjects(await db.rooms.toArray())
+  const roomItems = inProjects(await db.roomItems.toArray())
+  const submissions = inProjects(await db.submissions.toArray())
   const itpIds = new Set(itps.map((i) => i.id))
   const penIds = new Set(penetrations.map((p) => p.id))
   const defIds = new Set(defects.map((d) => d.id))
@@ -723,6 +760,10 @@ export async function exportBackup(projectId?: string): Promise<Backup> {
     penetrations,
     defects,
     photos,
+    ffeTypes,
+    rooms,
+    roomItems,
+    submissions,
     ...(projectId ? {} : { plant, depots, people }),
   }
 }
@@ -761,7 +802,7 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
   }))
   await db.transaction(
     'rw',
-    [db.businessUnits, db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.plant, db.depots, db.people],
+    [db.businessUnits, db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.plant, db.depots, db.people, db.ffeTypes, db.rooms, db.roomItems, db.submissions],
     async () => {
       await ensureBusinessUnits()
       if (b.businessUnits?.length) await db.businessUnits.bulkPut(b.businessUnits)
@@ -774,6 +815,10 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
       await db.plant.bulkPut(b.plant ?? [])
       await db.depots.bulkPut(b.depots ?? [])
       await db.people.bulkPut(b.people ?? [])
+      await db.ffeTypes.bulkPut(b.ffeTypes ?? [])
+      await db.rooms.bulkPut(b.rooms ?? [])
+      await db.roomItems.bulkPut(b.roomItems ?? [])
+      await db.submissions.bulkPut(b.submissions ?? [])
     },
   )
   return {

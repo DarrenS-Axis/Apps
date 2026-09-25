@@ -4,7 +4,7 @@ The Axis Plumbing QA system as a web app: **Controldoc** (Inspection & Test Plan
 **Firedoc** (the fire-rated penetration register) and **Reviewdoc** (the QA defect
 register), for every state, on a phone in the field, with the numbers rolling up to the
 national QA report — plus each state's **plant register**, tracked by photo, GPS and QR
-label.
+label, and per project **room data schedules** and **tech data submission forms**.
 
 It runs offline-first on the device and syncs to **SharePoint** in your Microsoft 365
 tenant, with **Power Automate** picking up events and list changes for notifications and
@@ -24,6 +24,8 @@ National QA ───────────── every state, reporting
                  ├─ Controldoc   ITPs from the 43-item library
                  ├─ Firedoc      penetrations, allocated against the fire schedule
                  ├─ Reviewdoc    costed, located, photographed defects
+                 ├─ Room data    FF&E schedule, rooms from the architectural plan,
+                 │               fixtures pinned per room, sample submissions
                  ├─ Plans        drawings, imported from PDF, pinned and highlighted
                  └─ Photos       timestamped, GPS-tagged evidence
        └─ Plant register  every tool and piece of plant, its yards and offices
@@ -169,6 +171,46 @@ The Plant tab holds the state's AXIMSRG-03 Plant & Equipment Register, live.
   plant number, status, last seen and GPS — which imports straight back.
 - A project's hub shows how much plant is on the job and links to it.
 
+### Room data — FF&E schedule, rooms and tech data submissions
+
+The Rooms tab builds the **Hydraulic Fixture Schedule – Room Data** from the architect's
+FF&E plan and the FF&E schedule, and raises the **sample / tech data submission forms**.
+
+- **Import the FF&E schedule** from Excel: the *Sanitary & Tapware Schedule* (Sample Ref ·
+  Sanitary Code · Tapware Code · Quantity · Selection / Description · Colour / Finish) gives
+  every code — fixtures, and the tapware that goes with each (`HB1 - Basin Mixer` belongs
+  to `HB1`) — with its scheduled quantity. A workbook with a *Room Data* sheet (Room Type /
+  Area · Room No. · Fixture · Code · … · In wall items) brings its rooms and each room's
+  fixtures too; level headings ("Ground Floor") and project-wide lines are kept, a `TBC`
+  quantity stays as a note. Re-importing updates, never duplicates.
+- **Scan the architectural plan.** The FF&E plan PDF is searched for the schedule's codes.
+  Rooms are read from their labels — the name over the room number (`UTILITY` /
+  `04A.G.02`) — and each tag is put in the room it sits in: the walls are traced from each
+  room label, and the nearest label decides for small rooms labelled outside their walls.
+  Where the two disagree the scan asks, offering both rooms (the tag stays amber in the room
+  data until someone picks). A 1:50 enlargement of rooms already on the 1:100 is recognised
+  and not counted twice; other trades' tags are listed but left alone. The sheet is saved to
+  Plans with a pin per fixture. A fixture the room data already lists in that room is pinned,
+  not added again; scanning the same sheet twice adds nothing.
+- **Rooms, plan and schedule.** Each room lists its fixtures with their tapware; quantities,
+  rooms and notes can be changed, fixtures added by hand or by tapping the plan (the room
+  defaults to the nearest label), and a pin moved to the room suggested. Codes the plan does
+  not tag (sinks, boilers, safety showers) come from the room data import or are added in
+  the room.
+- **Checks before issue**: rooms to confirm, schedule items in no room, and quantities in
+  the rooms that do not match the schedule.
+- **Exports.** The room data schedule PDF in the office's layout (room by room, each fixture
+  followed by its tapware), the sanitary & tapware quantities against the schedule, the
+  checks, and the FF&E mark-up of each plan; and an Excel workbook of the same (*Room data*,
+  *Sanitary tapware schedule*, *Checks*).
+- **Tech data submissions.** A submission per sample, numbered `HYD-AXIS-SMP-001` …: pick
+  the schedule lines it covers and the title, description and location (every room they are
+  in) fill themselves; attach the manufacturer's data sheets (PDF or photos); record the
+  client's, architect's and consultant's response (approved, approved subject to comments,
+  rejected). *Draft one per sample ref* raises one for every line not yet submitted. The PDF
+  is the **Sample Submission Form** laid out like the builder's, with the client's logo, then
+  the tech data appended.
+
 ### Saving, allocating and people
 
 Every record — ITP, penetration, defect, piece of plant — ends in a bar that stays in
@@ -282,7 +324,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Sixteen Playwright suites drive the production build in a real browser, including
+Seventeen Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.
@@ -312,7 +354,8 @@ npm run smoke
 src/
   data/
     types.ts            domain model: states, business units, projects, ITPs,
-                        penetrations, defects, photos, plant, depots, sync
+                        penetrations, defects, photos, plant, depots, FF&E,
+                        rooms, submissions, sync
     db.ts               Dexie store, migrations, outbox that feeds SharePoint
     plant.ts            plant numbering, sightings, yard / job placement, moves
     people.ts           people profiles and who each notification goes to
@@ -332,6 +375,10 @@ src/
     autopin.ts          penetration tags + symbols on plan PDFs
     plantRegister.ts    AXIMSRG-03 register import, CSV export
     plantPdf.ts         QR label sheets and the plant list PDF
+    roomData.ts         FF&E schedule import, rooms, room items, schedule and checks
+    roomScan.ts         reads rooms and FF&E tags off an architectural plan PDF
+    roomPdf.ts          room data schedule PDF and the sample submission form
+    xlsxWrite.ts        .xlsx writer, no dependencies
     qr.ts               QR codes: links, drawing, decoding
   components/PlantMap   the plant map (Leaflet, loaded on demand)
   components/RecordFooter  Save / Allocate / Delete bar on every record
@@ -340,7 +387,7 @@ src/
     pdf.ts              Controldoc ITP, ITP register and Reviewdoc QA report PDFs
   components/QrScanner  camera, label-photo and typed QR reading
   pages/                Welcome, StateHome, Project, Register, Itp, Firedoc,
-                        Reviewdoc, Drawings, Photos, Plant, Reports, Settings
+                        Reviewdoc, Rooms, Drawings, Photos, Plant, Reports, Settings
 flows/                  Power Automate guide and flow definition
 tests/                  browser suites and the mock Graph server
 ```

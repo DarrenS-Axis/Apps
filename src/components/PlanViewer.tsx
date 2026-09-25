@@ -10,6 +10,8 @@ interface Props {
   pins: PlanPin[]
   /** How many photos hang off each pin, keyed by pin id. */
   photoCounts?: Record<string, number>
+  /** A pin's colour when it is not the default blue — amber for "check this", say. */
+  pinColours?: Record<string, string>
   regions?: PlanRegion[]
   /** Fires with normalised 0..1 coordinates when the user taps in `pin` mode. */
   onDropPin?: (x: number, y: number) => void
@@ -74,6 +76,7 @@ const PAN_MARGIN = 72
 export function PlanViewer({
   drawing,
   pins,
+  pinColours,
   photoCounts = {},
   regions = [],
   onDropPin,
@@ -670,7 +673,7 @@ export function PlanViewer({
             <svg width="30" height="38" viewBox="0 0 30 38" aria-hidden="true">
               <path
                 d="M15 37C15 37 28 22.5 28 14A13 13 0 1 0 2 14c0 8.5 13 23 13 23z"
-                fill={pin.id === selectedPinId ? '#c2410c' : '#0f7ac2'}
+                fill={pin.id === selectedPinId ? '#c2410c' : (pinColours?.[pin.id] ?? '#0f7ac2')}
                 stroke="#fff"
                 strokeWidth="2"
               />

@@ -6,7 +6,7 @@ import { Empty, Field, IconFolder, IconPlus, Sheet } from '../components/ui'
 import { formatDate, relativeTime } from '../lib/format'
 import { BrandLogo, UnitLogo } from '../components/Brand'
 import { logoFor } from '../data/libraries/logos'
-import { MODULE_LABEL, STATE_NAMES, type BusinessUnit, type ModuleKey, type Project } from '../data/types'
+import { MODULE_LABEL, STATE_NAMES, type BusinessUnit, type ModuleKey, type Project, type ProjectModules } from '../data/types'
 
 /**
  * Work allocated to the person using the app: penetrations, defects and
@@ -220,7 +220,7 @@ function NewProjectSheet({
     address: '',
     approvedBy: '',
     locRefScheme: '',
-    modules: { controldoc: true, firedoc: true, reviewdoc: true },
+    modules: { controldoc: true, firedoc: true, reviewdoc: true, roomdata: true } as ProjectModules,
   })
   const [busy, setBusy] = useState(false)
 
@@ -275,7 +275,7 @@ function NewProjectSheet({
                 <input
                   type="checkbox"
                   style={{ width: 20, height: 20, minHeight: 0 }}
-                  checked={form.modules[m]}
+                  checked={Boolean(form.modules[m])}
                   onChange={(e) => setForm({ ...form, modules: { ...form.modules, [m]: e.target.checked } })}
                 />
                 <span>{MODULE_LABEL[m]}</span>

@@ -214,7 +214,7 @@ export function guessDrawingDetails(page: PlanPage, fileName: string): {
 
   // The file name is the most trustworthy source — a drawing exported from
   // SharePoint is usually named after its number. Allow a missing separator here.
-  const fromName = /\b([A-Z]{1,3}[-_ ]?\d{2,4}(?:[-_]\d{1,3})?)\b/.exec(stem.toUpperCase())
+  const fromName = /\b([A-Z]{1,3}[-_ ]?\d{2,4}(?:[-_.]\d{1,3})?)\b/.exec(stem.toUpperCase())
   if (fromName && !looksLikeSpec(fromName[1])) {
     out.number = fromName[1].replace(/[_ ]/g, '-')
   }
@@ -224,8 +224,11 @@ export function guessDrawingDetails(page: PlanPage, fileName: string): {
   if (!out.number) {
     const text = page.text.toUpperCase()
     const labelled = /\b(?:DRAWING|DWG|SHEET)\s*(?:NO\.?|NUMBER|#)?\s*[:.]?\s*([A-Z]{1,3}-\d{2,4}(?:-\d{1,3})?)\b/.exec(text)
+    // Architects number sheets by level and series — A-02.11 — which is far
+    // more telling than a bare A-2025 (often a contract number).
+    const dotted = /\b([A-Z]{1,3}-\d{1,3}\.\d{2,3})\b/.exec(text)
     const bare = /\b([A-Z]{1,3}-\d{3,4}(?:-\d{1,3})?)\b/.exec(text)
-    const candidate = labelled?.[1] ?? bare?.[1]
+    const candidate = labelled?.[1] ?? dotted?.[1] ?? bare?.[1]
     if (candidate && !looksLikeSpec(candidate)) out.number = candidate
   }
 
