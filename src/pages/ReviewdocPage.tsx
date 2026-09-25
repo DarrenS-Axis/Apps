@@ -7,6 +7,7 @@ import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/Photo
 import { PlanViewer } from '../components/PlanViewer'
 import { LocationLine, PlanImporter, useDeviceLocation, type Geo } from '../components/Locate'
 import { RecordFooter } from '../components/RecordFooter'
+import { withAxisLogo } from '../lib/brand'
 import { Empty, Field, IconCheck, IconPdf, IconPin, IconPlus, Sheet, Toast, useToast } from '../components/ui'
 import { DEFECT_STATUS_LABEL, SERVICE_TYPES, type Defect, type DefectStatus, type Drawing, type Photo, type ServiceType } from '../data/types'
 import { downloadBlob, formatDateTime, slug } from '../lib/format'
@@ -60,7 +61,7 @@ export function ReviewdocPage() {
     try {
       const list = status ? defects.filter((d) => d.status === status) : defects
       const photos = await db.photos.where('defectId').anyOf(list.map((d) => d.id)).toArray()
-      const blob = await exportQaReportPdf({ project, unit: unit ?? undefined, defects: [...list].sort((a, b) => a.number.localeCompare(b.number)), drawings, photos, to: project.client })
+      const blob = await exportQaReportPdf({ project: await withAxisLogo(project), unit: unit ?? undefined, defects: [...list].sort((a, b) => a.number.localeCompare(b.number)), drawings, photos, to: project.client })
       downloadBlob(blob, `${slug(project.name)}-QA-list-${new Date().toISOString().slice(0, 10)}.pdf`)
       showToast('QA report downloaded')
     } finally {

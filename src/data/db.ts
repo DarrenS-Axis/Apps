@@ -20,7 +20,7 @@ import type {
 import { DEFAULT_SETTINGS, normalisePoint } from './types'
 import { getTemplate } from './templates'
 import { LEGACY_CODE_MAP } from './libraries/itpLibrary'
-import { SEED_BUSINESS_UNITS, SEED_DEPOTS } from './libraries/states'
+import { SEED_BUSINESS_UNITS, SEED_DEPOTS, SUPERSEDED_ENTITIES } from './libraries/states'
 
 /**
  * Every record lives in IndexedDB, so the app behaves identically with no
@@ -218,6 +218,18 @@ export async function ensureBusinessUnits(): Promise<void> {
   const haveDepots = new Set(await db.depots.toCollection().primaryKeys())
   const units = SEED_BUSINESS_UNITS.filter((u) => !haveUnits.has(u.id))
   const depots = SEED_DEPOTS.filter((d) => !haveDepots.has(d.id))
+  // Seeded units nobody has edited take the corrected trading names.
+  const stale = (await db.businessUnits.bulkGet(Object.keys(SUPERSEDED_ENTITIES))).filter(
+    (u): u is BusinessUnit => Boolean(u && u.updatedAt === 0 && u.entity === SUPERSEDED_ENTITIES[u.id]),
+  )
+  if (stale.length) {
+    await withRemoteWrites(async () => {
+      for (const u of stale) {
+        const seed = SEED_BUSINESS_UNITS.find((s) => s.id === u.id)
+        if (seed) await db.businessUnits.update(u.id, { entity: seed.entity })
+      }
+    })
+  }
   if (!units.length && !depots.length) return
   await withRemoteWrites(async () => {
     if (units.length) await db.businessUnits.bulkAdd(units.map((u) => ({ ...u, createdAt: now(), updatedAt: 0 })))

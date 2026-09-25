@@ -1648,3 +1648,81 @@ table.report .report__bad {
   border-top: 1px solid var(--line);
   box-shadow: 0 -4px 12px rgba(16, 32, 44, 0.06);
 }
+
+/* ------------------------------------------------------------ business logos */
+
+.brandlogo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.brandlogo img {
+  display: block;
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+}
+
+.brandlogo--sm {
+  height: 30px;
+  padding: 3px 6px;
+}
+
+.brandlogo--md {
+  height: 40px;
+  padding: 4px 8px;
+}
+
+.brandlogo--lg {
+  height: 72px;
+  padding: 6px 10px;
+}
+
+.brandlogo--text {
+  color: var(--navy-800);
+  font-weight: 900;
+  letter-spacing: 2px;
+  font-size: 13px;
+}
+
+.brandlogo--lg.brandlogo--text {
+  font-size: 22px;
+}
+
+/* In the dark app bar the tile sits as the badge of whose app this is. */
+.appbar .brandlogo {
+  max-width: 92px;
+}
+
+.logostrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.itpbrand {
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.itpbrand .brandlogo {
+  border: 1px solid var(--line);
+}
+
+.unitrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}

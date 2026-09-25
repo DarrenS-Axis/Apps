@@ -18,6 +18,7 @@ import { PlantItemLink, PlantPage, PlantTagLink } from './pages/PlantPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { applyOrgConfig, isConfigured, lastReport, refreshAccount, startAutoSync } from './sync'
 import { SignInGate } from './components/SignInGate'
+import { BrandLogo, useBrand } from './components/Brand'
 import { warmQrDecoder } from './lib/qr'
 
 /** Tabs are project-scoped and follow the modules the project runs. */
@@ -120,6 +121,7 @@ function Shell() {
   const projectId = routeProjectId ?? (projects.some((p) => p.id === activeId) ? activeId : undefined)
   // The header names the project only on the project's own screens.
   const project = useProject(routeProjectId)
+  const brand = useBrand(routeProjectId)
 
   // Until a state is chosen there is nothing to show, so every route lands on
   // the welcome screen. Settings stays reachable for the SharePoint setup.
@@ -139,13 +141,17 @@ function Shell() {
   return (
     <div className="app">
       <header className="appbar">
-        {onHome || needsSignIn ? (
-          <span className="appbar__mark" aria-hidden="true">
-            AXIS
-          </span>
-        ) : (
+        {onHome || needsSignIn ? null : (
           <Link className="iconbtn appbar__jobs" to="/state" aria-label="All projects" title="All projects">
             <IconFolder />
+          </Link>
+        )}
+        {/* Whose app this is, on every screen: the project's business, or the person's own. */}
+        {needsSignIn ? (
+          <BrandLogo name="Axis" size="sm" />
+        ) : (
+          <Link to="/state" aria-label={`${brand.name} — home`} style={{ display: 'contents' }}>
+            <BrandLogo logo={brand.logo} name={brand.name} size="sm" />
           </Link>
         )}
         <div className="appbar__title">

@@ -4,6 +4,8 @@ import { createProject, db } from '../data/db'
 import { useActiveProjectId, useBusinessUnits, useLive, useSettings, useVisibleProjects } from '../data/store'
 import { Empty, Field, IconFolder, IconPlus, Sheet } from '../components/ui'
 import { formatDate, relativeTime } from '../lib/format'
+import { BrandLogo, UnitLogo } from '../components/Brand'
+import { logoFor } from '../data/libraries/logos'
 import { MODULE_LABEL, STATE_NAMES, type BusinessUnit, type ModuleKey, type Project } from '../data/types'
 
 /**
@@ -128,6 +130,17 @@ export function StateHomePage() {
     navigate(`/project/${id}`)
   }
 
+  // One tile per distinct logo: NSW Major Works and Med Gas share one.
+  const logos = useMemo(() => {
+    const seen = new Map<string, { logo?: string; name: string }>()
+    for (const u of visibleUnits) {
+      const logo = logoFor(u)
+      const key = logo ?? `text:${u.state}`
+      if (!seen.has(key)) seen.set(key, { logo, name: u.entity })
+    }
+    return [...seen.values()]
+  }, [visibleUnits])
+
   const title = settings.role === 'national_qa' ? 'All states' : settings.state ? `${settings.state} — ${STATE_NAMES[settings.state]}` : 'Projects'
 
   return (
@@ -141,6 +154,17 @@ export function StateHomePage() {
         </Link>
       </div>
 
+      {/* The businesses this home belongs to — every state's for national QA. */}
+      {logos.length ? (
+        <div className="card">
+          <div className="card__body logostrip" style={{ justifyContent: logos.length === 1 ? 'flex-start' : 'center' }}>
+            {logos.map((l) => (
+              <BrandLogo key={l.logo ?? l.name} logo={l.logo} name={l.name} size={logos.length > 2 ? 'md' : 'lg'} />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <MyWork name={settings.userName} />
 
       {visibleUnits.length === 0 ? (
@@ -152,6 +176,7 @@ export function StateHomePage() {
         return (
           <div key={unit.id}>
             <div className="section-title">
+              <UnitLogo unit={unit} size="sm" />
               <h2 style={{ fontSize: 15 }}>{unit.name}</h2>
               <span>{unit.entity}</span>
               <span className="spacer" />

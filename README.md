@@ -18,7 +18,7 @@ Live: <https://darrens-axis.github.io/Apps/>
 
 ```
 National QA ───────────── every state, reporting
-  └─ State (NSW, ACT, QLD, VIC, NT, WA, SA, TAS)
+  └─ State (NSW, ACT, QLD, VIC, NT, WA, SA, TAS) and NZ
        └─ Business unit (NSW Major Works, NSW Med Gas, NSW Small Works, QLD …)
             └─ Project (Liverpool Hospital, Pitt Street OSD …)
                  ├─ Controldoc   ITPs from the 43-item library
@@ -28,6 +28,16 @@ National QA ───────────── every state, reporting
                  └─ Photos       timestamped, GPS-tagged evidence
        └─ Plant register  every tool and piece of plant, its yards and offices
 ```
+
+**Each business's logo** is part of the app: in the app bar on every screen (the open
+project's business, or the person's own), at the top of the home page (every business's for
+national QA) and on each business unit's section, on the ITP screen, in the contractor cell
+of the ITP PDF, on the ITP register and QA report PDFs, and on the plant labels and plant
+list. Built in: ACT, NT, NZ, SA and VIC. Any unit's logo can be uploaded (or replaced) in
+Settings → Business units, which reaches every device; a unit without one shows the AXIS
+tile. A logo uploaded on a project still wins for that project's PDFs. Trading names match
+the logos (Axis Plumbing NSW Group, Axis Plumbing Small Works Group, Axis Plumbing ACT,
+Axis Services VIC, Axis Services Group WA, Axis Services SA, Axis Plumbing NZ …).
 
 On first run the app asks who you are, which state you work in and your access level.
 **Site** and **State QA** see only their state's business units and projects — on the
@@ -272,7 +282,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Fifteen Playwright suites drive the production build in a real browser, including
+Sixteen Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.
@@ -290,7 +300,9 @@ npm run smoke
 - **ITP library** — `src/data/libraries/itpLibrary.ts` is the register; the checklist
   content lives in `src/data/templates/`.
 - **Business units** — seeded from `src/data/libraries/states.ts`; edit, add and rename in
-  Settings. Yards and offices are seeded there too and edited from the Plant tab.
+  Settings.
+- **Logos** — built-in ones are `src/assets/logos/*.png`, listed per unit and state in
+  `src/data/libraries/logos.ts`; or upload a unit's logo in Settings → Business units. Yards and offices are seeded there too and edited from the Plant tab.
 - **Worked examples** — `examples/` holds exported ITPs; `tools/make-examples.mjs`
   regenerates them by driving the app.
 

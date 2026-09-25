@@ -7,7 +7,10 @@ import { FIRE_PROFILES, SCHEDULE_REVISION } from '../data/libraries/fireProfiles
 import { Field, IconDownload, SignaturePad, Toast, useToast } from '../components/ui'
 import { downloadBlob, formatDateTime } from '../lib/format'
 import { formatBytes } from '../lib/images'
-import { STATE_CODES, STATE_NAMES, USER_ROLE_LABEL, type StateCode, type SyncConfig, type UserRole } from '../data/types'
+import { STATE_CODES, STATE_NAMES, USER_ROLE_LABEL, type BusinessUnit, type StateCode, type SyncConfig, type UserRole } from '../data/types'
+import { UnitLogo } from '../components/Brand'
+import { logoFor } from '../data/libraries/logos'
+import { processLogo } from '../lib/images'
 import { isConfigured, provisionSharePoint, refreshAccount, signIn, signOut, syncNow, type SyncReport } from '../sync'
 import { EVENT_SCHEMA } from '../sync/events'
 
@@ -118,7 +121,7 @@ export function SettingsPage() {
               </select>
             </Field>
           </div>
-          <BusinessUnitsAdmin state={settings.state} />
+          <BusinessUnitsAdmin state={settings.state} all={settings.role === 'national_qa'} onToast={showToast} />
         </div>
       </div>
 
@@ -245,20 +248,42 @@ export function SettingsPage() {
 
 /* ------------------------------------------------------ business units */
 
-function BusinessUnitsAdmin({ state }: { state?: StateCode }) {
-  const units = useBusinessUnits(state)
+function BusinessUnitsAdmin({ state, all = false, onToast }: { state?: StateCode; all?: boolean; onToast: (m: string) => void }) {
+  const units = useBusinessUnits(all ? undefined : state)
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [entity, setEntity] = useState('')
   if (!state) return null
+  const upload = async (u: BusinessUnit, file: File | undefined) => {
+    if (!file) return
+    try {
+      // Small enough to travel with the unit's record to every device.
+      await updateBusinessUnit(u.id, { logo: await processLogo(file, 360) })
+      onToast(`${u.entity} logo saved — shown across the app and on its PDFs`)
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : 'Could not read that image.')
+    }
+  }
   return (
     <div>
-      <span className="field-label">Business units in {state}</span>
-      <div className="stack" style={{ gap: 6 }}>
+      <span className="field-label">Business units {all ? '— every state' : `in ${state}`}</span>
+      <div className="stack" style={{ gap: 10 }}>
         {units.map((u) => (
-          <div key={u.id} className="row" style={{ gap: 8 }}>
-            <input type="text" value={u.name} onChange={(e) => void updateBusinessUnit(u.id, { name: e.target.value })} style={{ flex: 1 }} aria-label="Business unit name" />
-            <input type="text" value={u.entity} onChange={(e) => void updateBusinessUnit(u.id, { entity: e.target.value })} style={{ flex: 1 }} aria-label="Trading entity" />
+          <div key={u.id} className="unitrow">
+            <UnitLogo unit={u} size="md" />
+            <div className="row" style={{ gap: 8, flex: 1, minWidth: 220, flexWrap: 'wrap' }}>
+              <input type="text" value={u.name} onChange={(e) => void updateBusinessUnit(u.id, { name: e.target.value })} style={{ flex: 1, minWidth: 110 }} aria-label="Business unit name" />
+              <input type="text" value={u.entity} onChange={(e) => void updateBusinessUnit(u.id, { entity: e.target.value })} style={{ flex: 1, minWidth: 150 }} aria-label="Trading entity" />
+            </div>
+            <label className="btn btn--ghost btn--sm" style={{ cursor: 'pointer' }}>
+              {u.logo ? 'Replace logo' : logoFor(u) ? 'Upload own logo' : 'Add logo'}
+              <input className="visually-hidden" type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" aria-label={`Logo for ${u.name}`} onChange={(e) => void upload(u, e.target.files?.[0])} />
+            </label>
+            {u.logo ? (
+              <button className="btn btn--ghost btn--sm" type="button" onClick={() => void updateBusinessUnit(u.id, { logo: undefined })}>
+                Remove
+              </button>
+            ) : null}
           </div>
         ))}
         {adding ? (

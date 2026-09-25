@@ -35,6 +35,8 @@ import { blockingHoldFor, deriveStatus, formatDate, formatDateTime, itpProgress,
 import { exportItpPdf } from '../lib/pdf'
 import { raiseEvent } from '../sync'
 import { RecordFooter } from '../components/RecordFooter'
+import { withAxisLogo } from '../lib/brand'
+import { BrandLogo, useBrand } from '../components/Brand'
 
 type Tab = 'schedule' | 'materials' | 'test' | 'plans' | 'signoff'
 
@@ -67,6 +69,8 @@ export function ItpPage() {
   const progress = useMemo(() => (itp ? itpProgress(itp) : null), [itp])
 
   const fetchingItp = useFetchIfMissing(!itp)
+  // The business the ITP is issued under, as on the paper sheet.
+  const brand = useBrand(itp?.projectId ?? projectId)
 
   if (!itp || !project || !progress) {
     return fetchingItp ? <Empty title="Fetching from SharePoint…" hint="This ITP is not on this device yet." /> : <Empty title="ITP not found" hint="It may have been deleted, or belong to another state." />
@@ -108,7 +112,7 @@ export function ItpPage() {
   const exportPdf = async () => {
     setExporting(true)
     try {
-      const blob = await exportItpPdf({ itp, project, drawings: drawings.filter((d) => itp.drawingIds.includes(d.id)), photos })
+      const blob = await exportItpPdf({ itp, project: await withAxisLogo(project), drawings: drawings.filter((d) => itp.drawingIds.includes(d.id)), photos })
       const a = document.createElement('a')
       const url = URL.createObjectURL(blob)
       a.href = url
@@ -140,6 +144,14 @@ export function ItpPage() {
 
       <div className="card">
         <div className="card__body">
+          <div className="row itpbrand">
+            <BrandLogo logo={brand.logo} name={brand.name} size="md" />
+            <span className="small muted">
+              Inspection &amp; Test Plan
+              <br />
+              {brand.name}
+            </span>
+          </div>
           <div className="row" style={{ alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>

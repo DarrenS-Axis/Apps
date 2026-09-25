@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-pinch.mjs && node tests/smoke-gesture-recovery.mjs && node tests/smoke-controldoc-locate.mjs && node tests/smoke-firedoc.mjs && node tests/smoke-reviewdoc.mjs && node tests/smoke-plant.mjs && node tests/smoke-people.mjs && node tests/smoke-sharepoint.mjs && node tests/smoke-live.mjs && node tests/smoke-offline.mjs"
+    "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-pinch.mjs && node tests/smoke-gesture-recovery.mjs && node tests/smoke-controldoc-locate.mjs && node tests/smoke-firedoc.mjs && node tests/smoke-reviewdoc.mjs && node tests/smoke-plant.mjs && node tests/smoke-people.mjs && node tests/smoke-brand.mjs && node tests/smoke-sharepoint.mjs && node tests/smoke-live.mjs && node tests/smoke-offline.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.23.0",

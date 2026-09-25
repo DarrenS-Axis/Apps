@@ -46,7 +46,22 @@ function drawQr(doc: jsPDF, text: string, x: number, y: number, size: number): v
 }
 
 /** One label's content inside its box. */
-function drawLabel(doc: jsPDF, spec: LabelSpec, x: number, y: number, entity: string): void {
+/** The business's logo inside a box, kept to its proportions. Skipped if it cannot be read. */
+function drawLogo(doc: jsPDF, data: string, x: number, y: number, maxW: number, maxH: number, align: 'left' | 'right' = 'left'): boolean {
+  try {
+    const p = doc.getImageProperties(data)
+    const scale = Math.min(maxW / p.width, maxH / p.height)
+    const w = p.width * scale
+    const h = p.height * scale
+    // One alias: a sheet of 21 labels embeds the image once.
+    doc.addImage(data, (p.fileType || 'PNG').toUpperCase(), align === 'right' ? x + maxW - w : x, y + (maxH - h) / 2, w, h, 'business-logo', 'FAST')
+    return true
+  } catch {
+    return false
+  }
+}
+
+function drawLabel(doc: jsPDF, spec: LabelSpec, x: number, y: number, entity: string, logo?: string): void {
   // With the label's own margin that is four clear modules round the code, as the QR standard asks.
   const pad = 1.4
   const qr = SHEET.h - pad * 2
@@ -56,7 +71,8 @@ function drawLabel(doc: jsPDF, spec: LabelSpec, x: number, y: number, entity: st
   doc.setTextColor(16, 32, 44)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
-  doc.text('AXIS PLANT', tx, y + 6)
+  // The owning business's logo heads the label; the words when there is none.
+  if (!logo || !drawLogo(doc, logo, tx, y + 1.4, tw, 6.4)) doc.text('AXIS PLANT', tx, y + 6)
   doc.setFontSize(13)
   doc.text(spec.plantNo, tx, y + 12.5, { maxWidth: tw })
   doc.setFont('helvetica', 'normal')
@@ -73,7 +89,7 @@ function drawLabel(doc: jsPDF, spec: LabelSpec, x: number, y: number, entity: st
  * A sheet (or sheets) of QR labels. `skip` leaves that many labels blank at
  * the start, so a part-used sheet can go back through the printer.
  */
-export function plantLabelsPdf(specs: LabelSpec[], opts: { entity: string; skip?: number; outlines?: boolean }): Blob {
+export function plantLabelsPdf(specs: LabelSpec[], opts: { entity: string; logo?: string; skip?: number; outlines?: boolean }): Blob {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
   const perPage = SHEET.cols * SHEET.rows
   const skip = Math.max(0, Math.min(perPage - 1, opts.skip ?? 0))
@@ -88,7 +104,7 @@ export function plantLabelsPdf(specs: LabelSpec[], opts: { entity: string; skip?
       doc.setLineWidth(0.1)
       doc.roundedRect(x, y, SHEET.w, SHEET.h, 2, 2, 'S')
     }
-    drawLabel(doc, spec, x, y, opts.entity)
+    drawLabel(doc, spec, x, y, opts.entity, opts.logo)
   })
   return doc.output('blob')
 }
@@ -97,8 +113,9 @@ export function plantLabelsPdf(specs: LabelSpec[], opts: { entity: string; skip?
  * The plant list, as the AXIMSRG-03 form sets it out — for the principal
  * contractor on the first of each month, or for the yard.
  */
-export function plantListPdf(items: PlantItem[], opts: { title: string; entity: string; subtitle?: string }): Blob {
+export function plantListPdf(items: PlantItem[], opts: { title: string; entity: string; logo?: string; subtitle?: string }): Blob {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true })
+  if (opts.logo) drawLogo(doc, opts.logo, 297 - 12 - 44, 4, 44, 18, 'right')
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.text(`${opts.entity} — Plant & Equipment Register`, 12, 15)

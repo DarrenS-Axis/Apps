@@ -69,7 +69,7 @@ function drawLogo(
   y: number,
   maxW: number,
   maxH: number,
-  align: 'left' | 'centre' = 'centre',
+  align: 'left' | 'centre' | 'right' = 'centre',
 ): number {
   try {
     const props = doc.getImageProperties(data)
@@ -77,7 +77,7 @@ function drawLogo(
     const scale = Math.min(maxW / props.width, maxH / props.height)
     const w = props.width * scale
     const h = props.height * scale
-    const dx = align === 'left' ? x : x + (maxW - w) / 2
+    const dx = align === 'left' ? x : align === 'right' ? x + maxW - w : x + (maxW - w) / 2
     const format = (props.fileType || 'PNG').toUpperCase()
     doc.addImage(data, format, dx, y + (maxH - h) / 2, w, h, undefined, 'FAST')
     return w
@@ -800,6 +800,8 @@ function drawPhotoGrid(doc: jsPDF, photos: Photo[], pinLabels: Map<string, strin
 export function exportRegisterPdf(project: Project, itps: Itp[]): Blob {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape', compress: true })
 
+  // The business's logo, top right.
+  if (project.contractorLogo) drawLogo(doc, project.contractorLogo, 297 - 12 - 44, 6, 44, 18, 'right')
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
   doc.text('HYDRAULIC ITP REGISTER', 12, 16)

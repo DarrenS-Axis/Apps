@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { db, saveSettings } from '../data/db'
 import { useBusinessUnits, useLive, useSettings } from '../data/store'
 import { Field } from '../components/ui'
+import { UnitLogo } from '../components/Brand'
+import { logoFor } from '../data/libraries/logos'
 import { STATE_CODES, STATE_NAMES, USER_ROLE_LABEL, type StateCode, type UserRole } from '../data/types'
 
 /**
@@ -101,6 +103,13 @@ export function WelcomePage() {
               ))}
             </select>
           </Field>
+          {state && units.length ? (
+            <div className="logostrip">
+              {[...new Map(units.map((u) => [logoFor(u) ?? u.id, u])).values()].map((u) => (
+                <UnitLogo key={u.id} unit={u} size="md" />
+              ))}
+            </div>
+          ) : null}
           {state && role !== 'national_qa' && units.length > 1 ? (
             <div>
               <span className="field-label">Business units</span>

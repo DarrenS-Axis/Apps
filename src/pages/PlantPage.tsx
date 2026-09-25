@@ -38,6 +38,7 @@ import { PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { mapsUrl } from '../components/Locate'
 import { QrScanner } from '../components/QrScanner'
 import { RecordFooter } from '../components/RecordFooter'
+import { logoDataUrl, logoFor } from '../data/libraries/logos'
 import { isConfigured, raiseEvent, syncNow } from '../sync'
 import { PlantMap } from '../components/PlantMap'
 import { ConfirmButton, Empty, Field, IconCamera, IconDownload, IconPlus, IconWarn, Sheet, Toast, useToast } from '../components/ui'
@@ -165,6 +166,8 @@ export function PlantPage() {
   const [addNo, setAddNo] = useState('')
 
   const entityFor = (state: StateCode) => units.find((u) => u.state === state)?.entity ?? `Axis ${state}`
+  /** The state's logo as the PDFs need it: its unit's, or the state's own. */
+  const logoOf = (state: StateCode) => logoDataUrl(logoFor(units.find((u) => u.state === state && logoFor(u)) ?? null, state))
 
   // A label scanned with the phone's own camera: open the item and record the sighting.
   useEffect(() => {
@@ -232,10 +235,11 @@ export function PlantPage() {
     const byId = new Map(projects.map((p) => [p.id, p]))
     downloadBlob(new Blob([plantCsv(filtered, byId)], { type: 'text/csv' }), `Plant register ${scope} ${todayIso()}.csv`)
   }
-  const exportList = () => {
+  const exportList = async () => {
     const title = where ? `Location: ${where === '(none)' ? 'not recorded' : where}` : SHOW_LABEL[show]
     const entity = scope === 'all' ? 'Axis' : entityFor(scope)
-    downloadBlob(plantListPdf(filtered, { title, entity, subtitle: scope === 'all' ? 'All states' : STATE_NAMES[scope] }), `Plant list ${scope}${where ? ` ${where}` : ''} ${todayIso()}.pdf`)
+    const logo = scope === 'all' ? undefined : await logoOf(scope)
+    downloadBlob(plantListPdf(filtered, { title, entity, logo, subtitle: scope === 'all' ? 'All states' : STATE_NAMES[scope] }), `Plant list ${scope}${where ? ` ${where}` : ''} ${todayIso()}.pdf`)
   }
 
   return (
@@ -399,6 +403,7 @@ export function PlantPage() {
           onClose={() => setOpen(null)}
           onToast={showToast}
           entity={entityFor}
+          logoOf={logoOf}
           onShowOnMap={(id) => {
             setOpen(null)
             setFocusId(id)
@@ -482,7 +487,7 @@ export function PlantPage() {
           }}
         />
       ) : null}
-      {panel === 'labels' ? <LabelsSheet items={filtered} all={plant} filterLabel={where || SHOW_LABEL[show]} entity={entityFor} onClose={() => setPanel('')} onDone={showToast} /> : null}
+      {panel === 'labels' ? <LabelsSheet items={filtered} all={plant} filterLabel={where || SHOW_LABEL[show]} entity={entityFor} logoOf={logoOf} onClose={() => setPanel('')} onDone={showToast} /> : null}
       {panel === 'depots' ? <DepotsSheet scope={scope} depots={depots} onClose={() => setPanel('')} onToast={showToast} /> : null}
       <Toast message={toast} />
     </>
@@ -535,6 +540,7 @@ function PlantSheet({
   onClose,
   onToast,
   entity,
+  logoOf,
   onShowOnMap,
 }: {
   id: string
@@ -544,6 +550,7 @@ function PlantSheet({
   onClose: () => void
   onToast: (m: string) => void
   entity: (s: StateCode) => string
+  logoOf: (s: StateCode) => Promise<string | undefined>
   onShowOnMap: (id: string) => void
 }) {
   const item = usePlantItem(id)
@@ -808,7 +815,7 @@ function PlantSheet({
                 className="btn btn--ghost btn--sm"
                 type="button"
                 onClick={async () => {
-                  downloadBlob(plantLabelsPdf([item], { entity: entity(item.state), outlines: true }), `Label ${item.plantNo}.pdf`)
+                  downloadBlob(plantLabelsPdf([item], { entity: entity(item.state), logo: await logoOf(item.state), outlines: true }), `Label ${item.plantNo}.pdf`)
                   await updatePlantItem(item.id, { labelPrintedAt: Date.now() })
                 }}
               >
@@ -1490,6 +1497,7 @@ function LabelsSheet({
   all,
   filterLabel,
   entity,
+  logoOf,
   onClose,
   onDone,
 }: {
@@ -1497,6 +1505,7 @@ function LabelsSheet({
   all: PlantItem[]
   filterLabel: string
   entity: (s: StateCode) => string
+  logoOf: (s: StateCode) => Promise<string | undefined>
   onClose: () => void
   onDone: (m: string) => void
 }) {
@@ -1543,7 +1552,7 @@ function LabelsSheet({
               const byState = new Map<StateCode, number>()
               for (const i of chosen) byState.set(i.state, (byState.get(i.state) ?? 0) + 1)
               const main = [...byState].sort((a, b) => b[1] - a[1])[0]?.[0]
-              const blob = plantLabelsPdf(chosen, { entity: main ? entity(main) : 'Axis', skip, outlines })
+              const blob = plantLabelsPdf(chosen, { entity: main ? entity(main) : 'Axis', logo: main ? await logoOf(main) : undefined, skip, outlines })
               downloadBlob(blob, `Plant labels ${todayIso()}.pdf`)
               const t = Date.now()
               await db.transaction('rw', db.plant, async () => {

@@ -82,8 +82,8 @@ export const ITP_STATUS_LABEL = QA_STATUS_LABEL
 
 /* ------------------------------------------------------------ organisation */
 
-/** Australian states and territories Axis operates in. */
-export type StateCode = 'NSW' | 'ACT' | 'QLD' | 'VIC' | 'NT' | 'WA' | 'SA' | 'TAS'
+/** The Australian states and territories Axis operates in, and New Zealand. */
+export type StateCode = 'NSW' | 'ACT' | 'QLD' | 'VIC' | 'NT' | 'WA' | 'SA' | 'TAS' | 'NZ'
 
 export const STATE_NAMES: Record<StateCode, string> = {
   NSW: 'New South Wales',
@@ -94,9 +94,10 @@ export const STATE_NAMES: Record<StateCode, string> = {
   WA: 'Western Australia',
   SA: 'South Australia',
   TAS: 'Tasmania',
+  NZ: 'New Zealand',
 }
 
-export const STATE_CODES: StateCode[] = ['NSW', 'ACT', 'QLD', 'VIC', 'NT', 'WA', 'SA', 'TAS']
+export const STATE_CODES: StateCode[] = ['NSW', 'ACT', 'QLD', 'VIC', 'NT', 'WA', 'SA', 'TAS', 'NZ']
 
 /**
  * A business unit is the "BUSINESS UNIT (STATE/OFFICE)" column of the QA
@@ -109,6 +110,11 @@ export interface BusinessUnit {
   name: string
   /** Trading entity printed on sign-offs, e.g. "Axis Plumbing NSW". */
   entity: string
+  /**
+   * The unit's logo, uploaded in Settings (a small PNG data URL). Units with
+   * a logo built into the app use that until one is uploaded.
+   */
+  logo?: string
   office?: string
   phone?: string
   abn?: string

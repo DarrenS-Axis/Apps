@@ -7,6 +7,7 @@ import { ConfirmButton, Empty, Field, IconDownload, IconList, IconPdf, IconPlan,
 import { deriveStatus, downloadBlob, itpProgress, slug } from '../lib/format'
 import { processLogo } from '../lib/images'
 import { exportRegisterPdf } from '../lib/pdf'
+import { withAxisLogo } from '../lib/brand'
 import { aud, controldocSummary, firedocSummary, reviewdocTotals } from '../lib/reporting'
 import { MODULE_LABEL, type ModuleKey } from '../data/types'
 
@@ -168,7 +169,7 @@ export function ProjectPage() {
       <div className="card">
         <div className="card__body">
           <div className="row" style={{ flexWrap: 'wrap' }}>
-            <button className="btn btn--ghost btn--sm" type="button" disabled={itps.length === 0} onClick={() => { downloadBlob(exportRegisterPdf(project, itps), `${slug(project.name)}_ITP_register.pdf`); showToast('Register exported') }}>
+            <button className="btn btn--ghost btn--sm" type="button" disabled={itps.length === 0} onClick={async () => { downloadBlob(exportRegisterPdf(await withAxisLogo(project), itps), `${slug(project.name)}_ITP_register.pdf`); showToast('Register exported') }}>
               <IconPdf />
               ITP register
             </button>
@@ -315,7 +316,7 @@ function EditProject({ projectId, onClose, onSaved }: { projectId: string; onClo
         </div>
         <div className="field-grid">
           <LogoField label="Head contractor logo" hint="Printed at the head of every exported ITP." value={form.clientLogo} onChange={(clientLogo) => setForm({ ...form, clientLogo })} />
-          <LogoField label="Axis logo" hint="Printed in the contractor cell and on the QA report." value={form.contractorLogo} onChange={(contractorLogo) => setForm({ ...form, contractorLogo })} />
+          <LogoField label="Axis logo" hint="Leave empty to use the business unit's logo (set in Settings). Printed in the contractor cell and on the QA report." value={form.contractorLogo} onChange={(contractorLogo) => setForm({ ...form, contractorLogo })} />
         </div>
         <Field label="Document marking" hint="Printed at the head and foot of every exported page, e.g. OFFICIAL. Leave blank for none.">
           <input type="text" value={form.marking} onChange={(e) => setForm({ ...form, marking: e.target.value })} />

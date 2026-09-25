@@ -68,6 +68,12 @@ console or page error along the way.
   allocating plant offers a pre-written `mailto:` and posts nothing; take back and
   reallocate work. *Allocated to you* opens the item without counting it as a sighting,
   and the event's link opens the penetration.
+- `smoke-brand.mjs` — business logos: NZ offered as a business; the SA logo in the app bar
+  on the home page and on a project, at the top of the home page and on the unit's section,
+  on the ITP screen, and embedded in the exported ITP PDF and a plant label; NSW (no logo
+  built in yet) shows the AXIS tile, its trading names match its logos, and a logo uploaded
+  in Settings takes over the app bar; national QA sees the ACT, NT, NZ, SA and VIC logos
+  and the NZ unit.
 - `smoke-sharepoint.mjs` — the Microsoft 365 path, against `mock-graph.mjs` (a stand-in for
   the slice of Graph the sync layer uses): provision the eleven lists, write records (a plant
   item among them) on one device and push them, pull them onto a fresh NSW device, confirm
