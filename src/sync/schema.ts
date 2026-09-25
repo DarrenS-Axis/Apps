@@ -1,6 +1,6 @@
 import type { SyncedTable } from '../data/db'
-import type { Defect, Drawing, Itp, Penetration, Photo, Project } from '../data/types'
-import { QA_STATUS_LABEL } from '../data/types'
+import type { Defect, Depot, Drawing, Itp, Penetration, Photo, PlantItem, Project } from '../data/types'
+import { PLANT_STATUS_LABEL, QA_STATUS_LABEL } from '../data/types'
 
 /**
  * How each local table is laid out in SharePoint.
@@ -119,9 +119,36 @@ export const LISTS: ListDef[] = [
       { name: 'ItpId', type: 'text' },
       { name: 'PenetrationId', type: 'text' },
       { name: 'DefectId', type: 'text' },
+      { name: 'PlantId', type: 'text' },
       { name: 'TakenAt', type: 'number' },
       { name: 'FilePath', type: 'text' },
     ],
+  },
+  {
+    table: 'plant',
+    displayName: 'QA Plant',
+    columns: [
+      ...common,
+      { name: 'PlantNo', type: 'text', indexed: true },
+      { name: 'AxisNo', type: 'text' },
+      { name: 'EquipmentType', type: 'text' },
+      { name: 'BrandModel', type: 'text' },
+      { name: 'Serial', type: 'text' },
+      { name: 'Status', type: 'text', indexed: true },
+      { name: 'Location', type: 'text' },
+      { name: 'ProjectId', type: 'text' },
+      { name: 'DepotId', type: 'text' },
+      { name: 'SeenAt', type: 'number' },
+      { name: 'SeenBy', type: 'text' },
+      { name: 'LastTestAt', type: 'text' },
+      { name: 'Lat', type: 'number' },
+      { name: 'Lng', type: 'number' },
+    ],
+  },
+  {
+    table: 'depots',
+    displayName: 'QA Depots',
+    columns: [...common, { name: 'Address', type: 'text' }, { name: 'Lat', type: 'number' }, { name: 'Lng', type: 'number' }, { name: 'Radius', type: 'number' }],
   },
 ]
 
@@ -248,15 +275,43 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         ItpId: ph.itpId ?? '',
         PenetrationId: ph.penetrationId ?? '',
         DefectId: ph.defectId ?? '',
+        PlantId: ph.plantId ?? '',
         TakenAt: ph.takenAt,
       })
       if (ph.data) {
-        const path = `photos/${ph.projectId ?? 'unfiled'}/${ph.id}.${mimeExt(ph.data)}`
+        const folder = ph.projectId ?? (ph.plantId ? `plant/${state || 'unfiled'}` : 'unfiled')
+        const path = `photos/${folder}/${ph.id}.${mimeExt(ph.data)}`
         binaries.push({ path, dataUrl: ph.data })
         payload.data = undefined
         payload.filePath = path
         fields.FilePath = path
       }
+      break
+    }
+    case 'plant': {
+      const p = record as unknown as PlantItem
+      fields.Title = `${p.plantNo} ${p.type}`.trim()
+      Object.assign(fields, {
+        PlantNo: p.plantNo,
+        AxisNo: p.axisNo ?? '',
+        EquipmentType: p.type,
+        BrandModel: p.brandModel,
+        Serial: p.serial,
+        Status: PLANT_STATUS_LABEL[p.status] ?? p.status,
+        Location: p.location,
+        ProjectId: p.projectId ?? '',
+        DepotId: p.depotId ?? '',
+        SeenAt: p.seenAt ?? null,
+        SeenBy: p.seenBy ?? '',
+        LastTestAt: p.lastTestAt ?? '',
+        Lat: p.lat ?? null,
+        Lng: p.lng ?? null,
+      })
+      break
+    }
+    case 'depots': {
+      const d = record as unknown as Depot
+      Object.assign(fields, { Address: d.address, Lat: d.lat ?? null, Lng: d.lng ?? null, Radius: d.radius })
       break
     }
   }

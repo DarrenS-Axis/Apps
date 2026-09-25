@@ -1,4 +1,4 @@
-import type { BusinessUnit, StateCode } from '../types'
+import type { BusinessUnit, Depot, StateCode } from '../types'
 
 /**
  * The business units seeded on first run, taken from the "BUSINESS UNIT
@@ -16,6 +16,27 @@ export const SEED_BUSINESS_UNITS: Omit<BusinessUnit, 'createdAt' | 'updatedAt'>[
   { id: 'bu_vic', state: 'VIC', name: 'VIC', entity: 'Axis Plumbing VIC', office: 'Melbourne' },
   { id: 'bu_nt', state: 'NT', name: 'NT', entity: 'Axis Plumbing NT', office: 'Darwin' },
   { id: 'bu_wa', state: 'WA', name: 'WA', entity: 'Axis Plumbing WA', office: 'Perth' },
+  { id: 'bu_sa', state: 'SA', name: 'SA', entity: 'Axis Services SA', office: 'Beverley' },
+]
+
+/**
+ * Yards and offices the plant register tracks items back to. The position is
+ * the suburb only until the address is looked up or someone sets it while
+ * standing there — `source: 'seed'` marks that, and the match is generous
+ * until then.
+ */
+export const SEED_DEPOTS: Omit<Depot, 'createdAt' | 'updatedAt'>[] = [
+  {
+    id: 'dep_sa_beverley',
+    state: 'SA',
+    name: 'Beverley office & yard',
+    address: 'Unit 2/21 Alfred Ave, Beverley SA 5009',
+    lat: -34.8955,
+    lng: 138.544,
+    radius: 250,
+    source: 'seed',
+    defaultArea: 'Yard',
+  },
 ]
 
 export const unitsForState = (units: BusinessUnit[], state?: StateCode): BusinessUnit[] =>

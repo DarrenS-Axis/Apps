@@ -1,7 +1,7 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { db, loadSettings } from './db'
-import type { BusinessUnit, Defect, Drawing, Itp, Penetration, Photo, Project, Settings, StateCode } from './types'
+import type { BusinessUnit, Defect, Depot, Drawing, Itp, Penetration, Photo, PlantItem, Project, Settings, StateCode } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 /**
@@ -36,6 +36,8 @@ const EMPTY_PHOTOS: Photo[] = []
 const EMPTY_UNITS: BusinessUnit[] = []
 const EMPTY_PENS: Penetration[] = []
 const EMPTY_DEFECTS: Defect[] = []
+const EMPTY_PLANT: PlantItem[] = []
+const EMPTY_DEPOTS: Depot[] = []
 
 export function useBusinessUnits(state?: StateCode): BusinessUnit[] {
   return useLive(
@@ -106,8 +108,33 @@ export function useDefect(id?: string): Defect | undefined {
   return useLive(() => (id ? db.defects.get(id) : undefined), [id], undefined)
 }
 
-/** Photos taken at a penetration or a defect. */
-export function useRecordPhotos(key: 'penetrationId' | 'defectId', id?: string): Photo[] {
+/** A state's plant register; every state's for national QA (no state given). */
+export function usePlant(state?: StateCode | 'all'): PlantItem[] {
+  return useLive(
+    () => (!state ? [] : state === 'all' ? db.plant.orderBy('plantNo').toArray() : db.plant.where('state').equals(state).sortBy('plantNo')),
+    [state],
+    EMPTY_PLANT,
+  )
+}
+
+export function usePlantItem(id?: string): PlantItem | undefined {
+  return useLive(() => (id ? db.plant.get(id) : undefined), [id], undefined)
+}
+
+export function useDepots(state?: StateCode | 'all'): Depot[] {
+  return useLive(
+    async () => {
+      if (!state) return []
+      const all = state === 'all' ? await db.depots.toArray() : await db.depots.where('state').equals(state).toArray()
+      return all.sort((a, b) => a.state.localeCompare(b.state) || a.name.localeCompare(b.name))
+    },
+    [state],
+    EMPTY_DEPOTS,
+  )
+}
+
+/** Photos taken at a penetration, a defect or of a piece of plant. */
+export function useRecordPhotos(key: 'penetrationId' | 'defectId' | 'plantId', id?: string): Photo[] {
   return useLive(() => (id ? db.photos.where(key).equals(id).sortBy('takenAt') : []), [key, id], EMPTY_PHOTOS)
 }
 

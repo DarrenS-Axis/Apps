@@ -14,18 +14,24 @@ import { PhotosPage } from './pages/PhotosPage'
 import { FiredocPage } from './pages/FiredocPage'
 import { ReviewdocPage } from './pages/ReviewdocPage'
 import { ReportsPage } from './pages/ReportsPage'
+import { PlantPage, PlantTagLink } from './pages/PlantPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { isConfigured, startAutoSync } from './sync'
+import { warmQrDecoder } from './lib/qr'
 
 /** Tabs are project-scoped and follow the modules the project runs. */
 function TabBar({ projectId }: { projectId?: string }) {
   const project = useProject(projectId)
   if (!projectId || !project) {
     return (
-      <nav className="tabbar tabbar--3" aria-label="Main">
+      <nav className="tabbar tabbar--4" aria-label="Main">
         <NavLink to="/state" end>
           <IconHome />
           Projects
+        </NavLink>
+        <NavLink to="/plant">
+          <IconTools />
+          Plant
         </NavLink>
         <NavLink to="/reports">
           <IconList />
@@ -63,6 +69,11 @@ const IconFire = () => (
     <path d="M12 3c1 3 4 4.5 4 8.5a4 4 0 0 1-8 0c0-1.5.6-2.6 1.4-3.5.3 1 .9 1.6 1.6 2 0-2.5-.4-4.7 1-7z" />
   </svg>
 )
+const IconTools = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L4 17v3h3l5.5-5.5a4 4 0 0 0 5.2-5.2l-2.4 2.4-2.6-.4-.4-2.6z" />
+  </svg>
+)
 const IconReview = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M9 5h6M9 5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2M9 5V4h6v1M9 12l2 2 4-4" />
@@ -82,6 +93,7 @@ function Shell() {
     void ensureBusinessUnits()
   }, [])
   useEffect(() => startAutoSync(), [])
+  useEffect(() => warmQrDecoder(), [])
 
   const match = /^\/project\/([^/]+)/.exec(location.pathname)
   const routeProjectId = match?.[1]
@@ -100,7 +112,7 @@ function Shell() {
       ? 'National QA'
       : 'Controldoc · Firedoc · Reviewdoc'
   const syncing = isConfigured(settings.sync)
-  const onHome = location.pathname === '/state' || location.pathname === '/welcome'
+  const onHome = location.pathname === '/state' || location.pathname === '/welcome' || location.pathname.startsWith('/plant')
 
   return (
     <div className="app">
@@ -160,6 +172,8 @@ function Shell() {
               <Route path="/project/:projectId/reviewdoc" element={<ReviewdocPage />} />
               <Route path="/project/:projectId/drawings" element={<DrawingsPage />} />
               <Route path="/project/:projectId/photos" element={<PhotosPage />} />
+              <Route path="/plant" element={<PlantPage />} />
+              <Route path="/plant/tag/:plantNo" element={<PlantTagLink />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFound />} />

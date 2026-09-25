@@ -294,6 +294,8 @@ export interface Photo {
   itpId: string
   penetrationId?: string
   defectId?: string
+  /** Plant item the photo was taken of — its sighting, for the plant register. */
+  plantId?: string
   /** Project the photo belongs to, so it can be filed without a lookup. */
   projectId?: string
   /** Inspection item this photo evidences; empty for general record shots. */
@@ -796,4 +798,114 @@ export interface OutboxEntry {
   at: number
   attempts: number
   lastError?: string
+}
+
+/* ------------------------------------------------------------------ plant */
+
+/**
+ * Where a piece of plant stands. "Available" is at a yard or office and free
+ * to go out; "On site" is on a job. Out of service covers broken and awaiting
+ * repair or test; disposed covers destroyed and written off, kept on the
+ * register so the history survives.
+ */
+export type PlantStatus = 'available' | 'on_site' | 'out_of_service' | 'missing' | 'disposed'
+
+export const PLANT_STATUS_LABEL: Record<PlantStatus, string> = {
+  available: 'Available',
+  on_site: 'On site',
+  out_of_service: 'Out of service',
+  missing: 'Missing',
+  disposed: 'Disposed',
+}
+
+export const PLANT_STATUSES: PlantStatus[] = ['available', 'on_site', 'out_of_service', 'missing', 'disposed']
+
+/**
+ * A state's yard or office. A sighting within its radius puts the item there
+ * and makes it available. The position starts from the address and is
+ * confirmed by standing there with a phone.
+ */
+export interface Depot {
+  id: string
+  state: StateCode
+  name: string
+  address: string
+  lat?: number
+  lng?: number
+  /** Metres around the position that count as "here". */
+  radius: number
+  /**
+   * How the position was found. A seeded one is only the suburb, so it is
+   * matched generously until the address is looked up or someone sets it on
+   * site.
+   */
+  source?: 'seed' | 'address' | 'device' | 'manual'
+  /** Where an item checked in here is said to be — "Yard" unless changed. */
+  defaultArea?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** One entry in an item's movement history. */
+export interface PlantMove {
+  at: number
+  by?: string
+  status: PlantStatus
+  location: string
+  depotId?: string
+  projectId?: string
+  lat?: number
+  lng?: number
+  accuracy?: number
+  /** How it was recorded. */
+  via: 'photo' | 'scan' | 'stocktake' | 'manual' | 'import'
+  photoId?: string
+  note?: string
+}
+
+/**
+ * A tool or piece of plant on a state's register — the AXIMSRG-03 Plant &
+ * Equipment Register, one row per item. `plantNo` is the register's own
+ * unique number, printed on the item's QR label; `axisNo` is the number
+ * painted or engraved on the tool, which the old register used but which is
+ * missing on most items and repeated on some.
+ */
+export interface PlantItem {
+  id: string
+  state: StateCode
+  /** Unique per state, e.g. "SA-0412". The QR label carries it. */
+  plantNo: string
+  /** Number marked on the tool, e.g. "AXP 80". */
+  axisNo?: string
+  /** Equipment type, e.g. "Hammer Drill". */
+  type: string
+  brandModel: string
+  serial: string
+  status: PlantStatus
+  /** Where it is: "Yard", "Office", or the job. */
+  location: string
+  depotId?: string
+  projectId?: string
+  /** Last known position and when it was taken. */
+  lat?: number
+  lng?: number
+  accuracy?: number
+  locatedAt?: number
+  /** Last time someone photographed or scanned it. */
+  seenAt?: number
+  seenBy?: string
+  /** "Calibration test" column — Yes / No, or the date it was calibrated. */
+  calibration?: string
+  calibratedAt?: string
+  /** "Last service or Test/Tag" — ISO date, or a note such as who tagged it. */
+  lastTestAt?: string
+  lastTestNote?: string
+  dateOffSite?: string
+  /** "Date of Entry" on the register. */
+  enteredAt?: string
+  labelPrintedAt?: number
+  notes?: string
+  history: PlantMove[]
+  createdAt: number
+  updatedAt: number
 }

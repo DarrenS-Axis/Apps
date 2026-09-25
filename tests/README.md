@@ -43,10 +43,21 @@ console or page error along the way.
   multi-sheet PDF, one sheet chosen), pinned and the pin moved, the device's position
   recorded (the browser is placed at Liverpool Hospital), every defect shown on the plan
   view, and the QA report exported with the coordinates.
+- `smoke-plant.mjs` — the plant register. Builds an .xlsx laid out like the AXIMSRG-03
+  register (title block, notes, header on row 17, Excel date serials, `Broken`,
+  `DESTROYED`, `Office Only`, `EDinburgh` and `Edinburgh`), imports it and re-imports it
+  without duplicates. Then: an item photographed at a job nobody has located asks which
+  job; the next item seen there is placed on it without asking; photographed at the
+  Beverley yard it is available again. A fake camera feed (a Y4M video of a QR label)
+  exercises the live scanner; a PNG of a label, a typed number, an unknown label added
+  under its number, and the phone-camera link `#/plant/tag/…` cover the other ways in. A
+  stocktake at the yard lists and marks missing what was not scanned. The label sheet,
+  plant list and CSV are exported and read back, and the CSV re-imports without moving
+  what was seen. The yard's address lookup (OpenStreetMap) is answered by the test.
 - `smoke-sharepoint.mjs` — the Microsoft 365 path, against `mock-graph.mjs` (a stand-in for
-  the slice of Graph the sync layer uses): provision the eight lists, write records on one
-  device and push them, pull them onto a fresh NSW device, confirm a QLD device receives
-  none of them and national QA receives all of them and reports on them.
+  the slice of Graph the sync layer uses): provision the ten lists, write records (a plant
+  item among them) on one device and push them, pull them onto a fresh NSW device, confirm
+  a QLD device receives none of them and national QA receives all of them and reports on them.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app
   reloads with the network cut and keeps its data, and all 42 templates remain available.
 

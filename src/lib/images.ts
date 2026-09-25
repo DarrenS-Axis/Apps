@@ -173,7 +173,7 @@ export async function processLogo(file: Blob, maxEdge = 480): Promise<string> {
 }
 
 /** Best-effort device position; never blocks capture if it is refused. */
-export function currentPosition(timeout = 8000): Promise<GeolocationPosition | null> {
+export function currentPosition(timeout = 8000, maximumAge = 30000): Promise<GeolocationPosition | null> {
   if (!navigator.geolocation) return Promise.resolve(null)
   return new Promise((resolve) => {
     let settled = false
@@ -195,7 +195,7 @@ export function currentPosition(timeout = 8000): Promise<GeolocationPosition | n
         clearTimeout(guard)
         finish(null)
       },
-      { enableHighAccuracy: true, timeout, maximumAge: 30000 },
+      { enableHighAccuracy: true, timeout, maximumAge },
     )
   })
 }
@@ -205,6 +205,7 @@ export interface CapturePhotoOptions {
   itpId?: string
   penetrationId?: string
   defectId?: string
+  plantId?: string
   projectId?: string
   itemNo?: string
   /** Plan pin this photo is being taken at, if any. */
@@ -214,6 +215,11 @@ export interface CapturePhotoOptions {
   settings: Settings
   /** Extra caption lines, e.g. the ITP number and area. */
   contextLines?: string[]
+  /**
+   * Insist on a new position rather than one the phone fixed moments ago —
+   * for plant, where the photo is the evidence of where the item is now.
+   */
+  freshGps?: boolean
 }
 
 /**
@@ -235,7 +241,7 @@ export async function capturePhoto(file: Blob, opts: CapturePhotoOptions): Promi
   let lng = exif.lng
   let accuracy: number | undefined
   if (opts.settings.captureGps && (lat === undefined || lng === undefined)) {
-    const pos = await currentPosition()
+    const pos = await currentPosition(opts.freshGps ? 12000 : 8000, opts.freshGps ? 0 : 30000)
     if (pos) {
       lat = pos.coords.latitude
       lng = pos.coords.longitude
@@ -262,6 +268,7 @@ export async function capturePhoto(file: Blob, opts: CapturePhotoOptions): Promi
     itpId: opts.itpId ?? '',
     penetrationId: opts.penetrationId,
     defectId: opts.defectId,
+    plantId: opts.plantId,
     projectId: opts.projectId,
     itemNo: opts.itemNo,
     pinId: opts.pinId,

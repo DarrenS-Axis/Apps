@@ -3,20 +3,22 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Axis QA \u2014 Controldoc ITPs, Firedoc penetration register and Reviewdoc defects, per state, offline-first, synced to SharePoint",
+  "description": "Axis QA — Controldoc ITPs, Firedoc penetration register, Reviewdoc defects and the plant register, per state, offline-first, synced to SharePoint",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-pinch.mjs && node tests/smoke-gesture-recovery.mjs && node tests/smoke-controldoc-locate.mjs && node tests/smoke-firedoc.mjs && node tests/smoke-reviewdoc.mjs && node tests/smoke-sharepoint.mjs && node tests/smoke-offline.mjs"
+    "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-pinch.mjs && node tests/smoke-gesture-recovery.mjs && node tests/smoke-controldoc-locate.mjs && node tests/smoke-firedoc.mjs && node tests/smoke-reviewdoc.mjs && node tests/smoke-plant.mjs && node tests/smoke-sharepoint.mjs && node tests/smoke-offline.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.23.0",
     "dexie": "^4.4.5",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
+    "jsqr": "^1.4.0",
     "pdfjs-dist": "^6.3.289",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6"

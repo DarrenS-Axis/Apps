@@ -3,7 +3,8 @@
 The Axis Plumbing QA system as a web app: **Controldoc** (Inspection & Test Plans),
 **Firedoc** (the fire-rated penetration register) and **Reviewdoc** (the QA defect
 register), for every state, on a phone in the field, with the numbers rolling up to the
-national QA report.
+national QA report — plus each state's **plant register**, tracked by photo, GPS and QR
+label.
 
 It runs offline-first on the device and syncs to **SharePoint** in your Microsoft 365
 tenant, with **Power Automate** picking up events and list changes for notifications and
@@ -25,6 +26,7 @@ National QA ───────────── every state, reporting
                  ├─ Reviewdoc    costed, located, photographed defects
                  ├─ Plans        drawings, imported from PDF, pinned and highlighted
                  └─ Photos       timestamped, GPS-tagged evidence
+       └─ Plant register  every tool and piece of plant, its yards and offices
 ```
 
 On first run the app asks who you are, which state you work in and your access level.
@@ -108,6 +110,46 @@ The exported PDF carries all of it in the Controldoc layout.
 - **QA REPORT** export to the head contractor: cover page, then ID, location, mini map,
   description, cost and photo per defect, as the Controldoc report lays it out.
 
+### Plant register — tools and plant, per state
+
+The Plant tab holds the state's AXIMSRG-03 Plant & Equipment Register, live.
+
+- **Import the register** from the Excel file as the office keeps it (title block, job
+  list, notes, then Equipment Type · Brand and Model · Serial # · Location · Date off site ·
+  Calibration test · Last service or Test/Tag · Axis No. · Date of Entry). Location becomes
+  a status: *Yard* / *Office Only* → available at the yard or office, a job name → on site
+  (linked to the project when one matches), *Broken* → out of service, *DESTROYED* →
+  disposed. Spellings of one job are merged (`EDinburgh` → `Edinburgh`). Every item gets a
+  register number — `SA-0001` … — for its QR label; the number marked on the tool (Axis
+  No.) is kept beside it, since most items have none and some share one. Importing a newer
+  copy updates items in place (matched on type, brand, serial and Axis No., one for one) and
+  never moves an item that has been photographed or scanned since.
+- **Photo & locate.** Photograph an item and the phone's position (from the photo, or a
+  fresh fix) decides where it is. Within a **yard or office** it is back there and
+  *available*; near a job where ITPs, penetrations, defects or plant have been located it
+  is *on site* at that job; anywhere else the app asks which job. Every move is kept in the
+  item's history with who, when, how and the coordinates.
+- **Yards and offices.** SA starts with *Beverley office & yard*, Unit 2/21 Alfred Ave,
+  Beverley SA 5009. Until its position is confirmed it is placed from the suburb and
+  matched generously; the app looks the address up when there is signal, or set it by
+  standing there and tapping *I'm here — use my location*. Add more per state.
+- **QR labels.** A4 sheets of 21 (Avery L7160 / J8160), or one label from the item. Each
+  carries the plant number, the item and a QR code linking to it, so **any phone camera**
+  opens the item. In the app, **Scan QR** reads labels with the live camera (the browser's
+  barcode reader where there is one, a JavaScript decoder otherwise), from a photo of the
+  label, or by typing the number. Scanning records where the item was seen. A label not on
+  the register yet offers to add the item under its number.
+- **Stocktake.** Scan item after item; each is recorded where you stand. At a yard, the
+  items the register says are there but that were not scanned are listed and can be marked
+  missing in one go.
+- **Checks.** On site and not seen for 60 days; test & tag overdue (three-monthly, per
+  AS/NZS 3760 on construction sites, from the register's last test date); never labelled;
+  never located. Each is a filter and a count.
+- **Exports.** The plant list PDF in the register's layout (for the principal contractor on
+  the first of the month, filtered to a job), and CSV in the register's own columns plus
+  plant number, status, last seen and GPS — which imports straight back.
+- A project's hub shows how much plant is on the job and links to it.
+
 ### QA report
 
 The monthly report, live, for a business unit, a state or the nation: the Firedoc summary
@@ -123,13 +165,13 @@ identically with no signal. Set up once, from Settings → Microsoft 365:
 1. An Entra ID **single-page application** registration (no secret — PKCE) with delegated
    `User.Read`, `Sites.ReadWrite.All`, `Files.ReadWrite.All`. Tenant ID and client ID go
    into Settings.
-2. The SharePoint site URL. **Provision** creates the seven `QA …` lists and the
+2. The SharePoint site URL. **Provision** creates the nine `QA …` lists and the
    `QA Files` library, and adds any column an upgrade needs. Safe to run again.
 3. **Sync now**, or leave it: the app syncs on coming online, on returning to the tab and
    every five minutes.
 
 Each list carries the full record as JSON plus plain columns — state, project, status,
-ITC number, cost, profile — so Power Automate and Power BI filter and total without
+ITC number, cost, profile, plant number, location, last seen — so Power Automate and Power BI filter and total without
 parsing anything. Each state pulls only its own records; national QA pulls all.
 
 The app also posts events (`itp.completed_by_site`, `itp.hold_point_reached`,
@@ -155,7 +197,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Twelve Playwright suites drive the production build in a real browser, including
+Thirteen Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.
@@ -173,7 +215,7 @@ npm run smoke
 - **ITP library** — `src/data/libraries/itpLibrary.ts` is the register; the checklist
   content lives in `src/data/templates/`.
 - **Business units** — seeded from `src/data/libraries/states.ts`; edit, add and rename in
-  Settings.
+  Settings. Yards and offices are seeded there too and edited from the Plant tab.
 - **Worked examples** — `examples/` holds exported ITPs; `tools/make-examples.mjs`
   regenerates them by driving the app.
 
@@ -183,8 +225,9 @@ npm run smoke
 src/
   data/
     types.ts            domain model: states, business units, projects, ITPs,
-                        penetrations, defects, photos, sync
+                        penetrations, defects, photos, plant, depots, sync
     db.ts               Dexie store, migrations, outbox that feeds SharePoint
+    plant.ts            plant numbering, sightings, yard / job placement, moves
     store.ts            live-query hooks, state-scoped
     libraries/          itpLibrary (43), fireProfiles (202), states
     templates/          Controldoc checklist content
@@ -198,10 +241,14 @@ src/
   lib/
     xlsx.ts             .xlsx / .csv reader, no dependencies
     autopin.ts          penetration tags + symbols on plan PDFs
+    plantRegister.ts    AXIMSRG-03 register import, CSV export
+    plantPdf.ts         QR label sheets and the plant list PDF
+    qr.ts               QR codes: links, drawing, decoding
     reporting.ts        the monthly report computations
     pdf.ts              Controldoc ITP, ITP register and Reviewdoc QA report PDFs
+  components/QrScanner  camera, label-photo and typed QR reading
   pages/                Welcome, StateHome, Project, Register, Itp, Firedoc,
-                        Reviewdoc, Drawings, Photos, Reports, Settings
+                        Reviewdoc, Drawings, Photos, Plant, Reports, Settings
 flows/                  Power Automate guide and flow definition
 tests/                  browser suites and the mock Graph server
 ```

@@ -554,13 +554,18 @@ textarea:focus {
   font-weight: 620;
 }
 
-.listitem__main span {
+/* Direct lines only: a row of chips inside keeps its own layout and colours. */
+.listitem__main > span:not(.row) {
   display: block;
   font-size: 12.5px;
   color: var(--ink-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.listitem__main > .row {
+  flex-wrap: wrap;
 }
 
 .listitem__num {
@@ -575,6 +580,15 @@ textarea:focus {
   font-size: 13px;
   font-weight: 700;
   font-family: var(--mono);
+}
+
+/* A longer register number, e.g. SA-0412. */
+.listitem__num--wide {
+  width: auto;
+  min-width: 42px;
+  padding: 0 7px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------- ITP items */
@@ -1292,4 +1306,151 @@ table.report .report__total td {
 table.report .report__bad {
   color: var(--hold);
   font-weight: 700;
+}
+
+/* ------------------------------------------------------------ plant register */
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 86px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(110px, 40%) 1fr;
+  gap: 6px 12px;
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.kv dt {
+  color: var(--ink-3);
+}
+
+.kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.history {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0 0 0 14px;
+  border-left: 2px solid var(--line);
+}
+
+.history li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 12px;
+  position: relative;
+}
+
+.history li::before {
+  content: '';
+  position: absolute;
+  left: -20px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+}
+
+.qrbox {
+  width: 132px;
+  height: 132px;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.scanner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 52vh;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: #0b1a27;
+}
+
+.scanner video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.scanner__frame {
+  position: absolute;
+  inset: 16% 22%;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
+  box-shadow: 0 0 0 999px rgba(11, 26, 39, 0.35);
+  pointer-events: none;
+}
+
+.scanner__msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  color: #fff;
+  font-size: 14px;
+  text-align: center;
+}
+
+.stocklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 34vh;
+  overflow: auto;
+  font-size: 13px;
+}
+
+.stocklist li {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.stocklist li.is-warn {
+  background: var(--warn-soft);
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.check input {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  flex: none;
 }

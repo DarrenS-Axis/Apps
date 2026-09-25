@@ -69,6 +69,8 @@ export class SyncEngine {
 
   private async stateFor(record: Record<string, unknown>): Promise<string> {
     if (typeof record.state === 'string') return record.state
+    // Plant photos belong to a state's register, not a project.
+    if (record.plantId && !record.projectId) return (await db.plant.get(record.plantId as string))?.state ?? ''
     const projectId =
       (record.projectId as string | undefined) ??
       (await (async () => {

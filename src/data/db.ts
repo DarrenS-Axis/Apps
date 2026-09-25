@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import type {
   BusinessUnit,
   Defect,
+  Depot,
   Drawing,
   Itp,
   ItpItem,
@@ -9,6 +10,7 @@ import type {
   OutboxEntry,
   Penetration,
   Photo,
+  PlantItem,
   Project,
   QaStatus,
   Settings,
@@ -16,7 +18,7 @@ import type {
 import { DEFAULT_SETTINGS, normalisePoint } from './types'
 import { getTemplate } from './templates'
 import { LEGACY_CODE_MAP } from './libraries/itpLibrary'
-import { SEED_BUSINESS_UNITS } from './libraries/states'
+import { SEED_BUSINESS_UNITS, SEED_DEPOTS } from './libraries/states'
 
 /**
  * Every record lives in IndexedDB, so the app behaves identically with no
@@ -35,6 +37,8 @@ class QaDatabase extends Dexie {
   penetrations!: Table<Penetration, string>
   defects!: Table<Defect, string>
   photos!: Table<Photo, string>
+  plant!: Table<PlantItem, string>
+  depots!: Table<Depot, string>
   settings!: Table<Settings, string>
   outbox!: Table<OutboxEntry, string>
   remoteIds!: Table<{ id: string; spId: string }, string>
@@ -94,6 +98,12 @@ class QaDatabase extends Dexie {
           s.sync ??= { mode: 'local' }
         })
       })
+    // The plant register: state-wide rather than per project.
+    this.version(3).stores({
+      plant: 'id, state, plantNo, status, projectId, depotId, updatedAt, [state+plantNo]',
+      depots: 'id, state',
+      photos: 'id, itpId, penetrationId, defectId, plantId, itemNo, takenAt',
+    })
   }
 }
 
@@ -107,7 +117,7 @@ export const now = (): number => Date.now()
 /* --------------------------------------------------------------- outbox */
 
 /** Tables that reach SharePoint. Settings and the outbox itself never leave the device. */
-export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos'] as const
+export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots'] as const
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
 
 /**
@@ -169,10 +179,17 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
  * fresh device cannot push the defaults back over it.
  */
 export async function ensureBusinessUnits(): Promise<void> {
-  if ((await db.businessUnits.count()) > 0) return
-  await withRemoteWrites(() =>
-    db.businessUnits.bulkAdd(SEED_BUSINESS_UNITS.map((u) => ({ ...u, createdAt: now(), updatedAt: 0 }))),
-  )
+  // Seeds added in later releases (SA, the depots) reach devices that were
+  // set up before them: only ids that are missing are written.
+  const haveUnits = new Set(await db.businessUnits.toCollection().primaryKeys())
+  const haveDepots = new Set(await db.depots.toCollection().primaryKeys())
+  const units = SEED_BUSINESS_UNITS.filter((u) => !haveUnits.has(u.id))
+  const depots = SEED_DEPOTS.filter((d) => !haveDepots.has(d.id))
+  if (!units.length && !depots.length) return
+  await withRemoteWrites(async () => {
+    if (units.length) await db.businessUnits.bulkAdd(units.map((u) => ({ ...u, createdAt: now(), updatedAt: 0 })))
+    if (depots.length) await db.depots.bulkAdd(depots.map((d) => ({ ...d, createdAt: now(), updatedAt: 0 })))
+  })
 }
 
 export async function createBusinessUnit(input: Omit<BusinessUnit, 'id' | 'createdAt' | 'updatedAt'>): Promise<BusinessUnit> {
@@ -592,6 +609,7 @@ export async function addPhoto(photo: Photo): Promise<void> {
   if (photo.itpId) await db.itps.update(photo.itpId, { updatedAt: now() })
   if (photo.penetrationId) await db.penetrations.update(photo.penetrationId, { updatedAt: now() })
   if (photo.defectId) await db.defects.update(photo.defectId, { updatedAt: now() })
+  if (photo.plantId) await db.plant.update(photo.plantId, { updatedAt: now() })
 }
 
 export async function deletePhoto(id: string): Promise<void> {
@@ -615,6 +633,9 @@ export interface Backup {
   penetrations?: Penetration[]
   defects?: Defect[]
   photos: Photo[]
+  /** Full backups only: the plant register belongs to the state, not a project. */
+  plant?: PlantItem[]
+  depots?: Depot[]
 }
 
 /**
@@ -634,8 +655,15 @@ export async function exportBackup(projectId?: string): Promise<Backup> {
   const itpIds = new Set(itps.map((i) => i.id))
   const penIds = new Set(penetrations.map((p) => p.id))
   const defIds = new Set(defects.map((d) => d.id))
+  const plant = projectId ? [] : await db.plant.toArray()
+  const depots = projectId ? [] : await db.depots.toArray()
+  const plantIds = new Set(plant.map((p) => p.id))
   const photos = (await db.photos.toArray()).filter(
-    (p) => itpIds.has(p.itpId) || (p.penetrationId ? penIds.has(p.penetrationId) : false) || (p.defectId ? defIds.has(p.defectId) : false),
+    (p) =>
+      itpIds.has(p.itpId) ||
+      (p.penetrationId ? penIds.has(p.penetrationId) : false) ||
+      (p.defectId ? defIds.has(p.defectId) : false) ||
+      (p.plantId ? plantIds.has(p.plantId) : false),
   )
   return {
     format: 'axis-qa-backup',
@@ -648,6 +676,7 @@ export async function exportBackup(projectId?: string): Promise<Backup> {
     penetrations,
     defects,
     photos,
+    ...(projectId ? {} : { plant, depots }),
   }
 }
 
@@ -658,6 +687,7 @@ export interface ImportResult {
   penetrations: number
   defects: number
   photos: number
+  plant: number
 }
 
 /**
@@ -684,7 +714,7 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
   }))
   await db.transaction(
     'rw',
-    [db.businessUnits, db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos],
+    [db.businessUnits, db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.plant, db.depots],
     async () => {
       await ensureBusinessUnits()
       if (b.businessUnits?.length) await db.businessUnits.bulkPut(b.businessUnits)
@@ -694,6 +724,8 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
       await db.penetrations.bulkPut(b.penetrations ?? [])
       await db.defects.bulkPut(b.defects ?? [])
       await db.photos.bulkPut(b.photos ?? [])
+      await db.plant.bulkPut(b.plant ?? [])
+      await db.depots.bulkPut(b.depots ?? [])
     },
   )
   return {
@@ -703,6 +735,7 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
     penetrations: b.penetrations?.length ?? 0,
     defects: b.defects?.length ?? 0,
     photos: b.photos?.length ?? 0,
+    plant: b.plant?.length ?? 0,
   }
 }
 

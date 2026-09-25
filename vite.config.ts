@@ -17,6 +17,8 @@ export default defineConfig({
           if (id.includes('pdfjs-dist')) return 'pdfjs'
           // Likewise the PDF writer: exporting is rare compared with capture.
           if (id.includes('jspdf')) return 'pdf'
+          // The QR decoder only loads when someone scans.
+          if (id.includes('jsqr')) return 'jsqr'
           if (id.includes('node_modules')) return 'vendor'
           return undefined
         },

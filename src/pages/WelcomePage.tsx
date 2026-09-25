@@ -53,8 +53,8 @@ export function WelcomePage() {
       <div className="card">
         <div className="card__body stack">
           <p className="small muted" style={{ margin: 0 }}>
-            Controldoc, Firedoc and Reviewdoc for every Axis project. Choose the state you work in — the app shows that
-            state's projects and nothing else.
+            Controldoc, Firedoc and Reviewdoc for every Axis project, and the state's plant register. Choose the state you work
+            in — the app shows that state's projects and plant and nothing else.
           </p>
           <Field label="Your name">
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Murtaza Bahloli" autoFocus />

@@ -32,6 +32,9 @@ export function ProjectPage() {
     0,
   )
 
+  // Plant the register has on this job.
+  const plantHere = useLive(() => (projectId ? db.plant.where('projectId').equals(projectId).filter((p) => p.status === 'on_site').count() : 0), [projectId], 0)
+
   const control = useMemo(() => controldocSummary(itps), [itps])
   const holds = useMemo(() => itps.reduce((n, i) => n + itpProgress(i).openHolds.length, 0), [itps])
   const fire = useMemo(() => firedocSummary(pens), [pens])
@@ -115,6 +118,13 @@ export function ProjectPage() {
           <span className="module__big">{photoCount}</span>
           <span className="module__sub">on record</span>
         </Link>
+        {plantHere ? (
+          <Link className="module module--quiet" to="/plant" state={{ where: project.name }}>
+            <span className="module__name">Plant</span>
+            <span className="module__big">{plantHere}</span>
+            <span className="module__sub">on this job</span>
+          </Link>
+        ) : null}
       </div>
 
       {project.modules.controldoc && itps.length ? (
