@@ -53,7 +53,9 @@ console or page error along the way.
   under its number, and the phone-camera link `#/plant/tag/…` cover the other ways in. A
   stocktake at the yard lists and marks missing what was not scanned. The label sheet,
   plant list and CSV are exported and read back, and the CSV re-imports without moving
-  what was seen. The yard's address lookup (OpenStreetMap) is answered by the test.
+  what was seen. The map pins every located item (checked against the store), a pin's
+  list opens the item, and *Show on map* draws the drill's trail from the job and back.
+  The yard's address lookup and the map tiles (OpenStreetMap) are answered by the test.
 - `smoke-sharepoint.mjs` — the Microsoft 365 path, against `mock-graph.mjs` (a stand-in for
   the slice of Graph the sync layer uses): provision the ten lists, write records (a plant
   item among them) on one device and push them, pull them onto a fresh NSW device, confirm

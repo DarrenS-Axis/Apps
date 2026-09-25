@@ -220,6 +220,30 @@ page.on('console', (m) => {
 })
 // The depot's address, looked up on OpenStreetMap, answered here.
 let lookups = 0
+// Map tiles: a plain grey square each, so the map draws with no network.
+const TILE = (() => {
+  const size = 256
+  const raw = Buffer.alloc((size + 1) * size, 226)
+  for (let y = 0; y < size; y++) raw[y * (size + 1)] = 0
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const td = Buffer.concat([Buffer.from(type), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(td))
+    return Buffer.concat([len, td, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(size, 0)
+  ihdr.writeUInt32BE(size, 4)
+  ihdr[8] = 8
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
+})()
+let tiles = 0
+await page.route(/tile\.openstreetmap\.org/, (route) => {
+  tiles++
+  return route.fulfill({ contentType: 'image/png', body: TILE })
+})
 await page.route(/nominatim\.openstreetmap\.org/, (route) => {
   lookups++
   return route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ lat: String(OFFICE.latitude), lon: String(OFFICE.longitude) }]) })
@@ -454,6 +478,41 @@ await page.getByRole('button', { name: /^Import 13 items/ }).click()
 await page.locator('.toast', { hasText: '0 added · 13 updated' }).waitFor()
 const drillAfter = await byNo('SA-0007')
 check(drillAfter.status === drillBefore.status && drillAfter.location === drillBefore.location && drillAfter.history.length === drillBefore.history.length, 'Re-importing the CSV moved a sighted item')
+
+// --- The map: every located item at its last photo / scan, grouped where they crowd.
+await page.getByRole('button', { name: 'Map', exact: true }).click()
+await page.locator('.plantmap .leaflet-container, .plantmap.leaflet-container').first().waitFor({ timeout: 20000 })
+await page.locator('.plantpin').first().waitFor({ timeout: 20000 })
+await page.waitForTimeout(600)
+plant = await db('plant')
+const located = plant.filter((p) => p.lat !== undefined)
+const pinned = await page.locator('.plantpin').evaluateAll((els) => els.reduce((s, e) => s + Number(e.dataset.count), 0))
+console.log('map:', (await page.locator('.plantpin').count()), 'pins holding', pinned, 'of', located.length, 'located items;', tiles, 'tiles')
+check(located.length >= 4 && pinned === located.length, `Map should pin every located item (${located.length}), pinned ${pinned}`)
+check((await page.locator('.depotpin', { hasText: 'Beverley office & yard' }).count()) === 1, 'Yard not marked on the map')
+check(/not yet photographed or scanned/.test(await page.locator('.plantmap ~ .row').innerText()), 'Map legend does not say what is missing from it')
+await shot('07-map')
+// A pin opens its list; an item in the list opens the item.
+await page.locator('.plantpin').first().click()
+await page.locator('.mappop__item').first().waitFor()
+const popupNo = (await page.locator('.mappop__item b').first().innerText()).trim()
+await page.locator('.mappop__item').first().click()
+await page.getByRole('heading', { name: new RegExp(`^${popupNo} · `) }).waitFor()
+// Show on map: the drill's trail, job and back.
+await closeSheet()
+await page.getByRole('button', { name: 'List', exact: true }).click()
+await page.getByPlaceholder(/Search plant no/).fill('Hammer Drill')
+await page.locator('.listitem').first().click()
+await page.getByRole('button', { name: 'Show on map' }).click()
+await page.getByText(/Trail of SA-0007/).waitFor()
+await page.waitForTimeout(600)
+const trailStops = await page.locator('.plantmap path.leaflet-interactive').count()
+console.log('trail layers:', trailStops, (await page.locator('.banner', { hasText: 'Trail of' }).innerText()).replace(/\s+/g, ' '))
+check((await page.locator('.plantmap path.plantmap-trail').count()) === 1 && trailStops >= 3, 'Drill trail not drawn')
+await shot('08-trail')
+await page.getByRole('button', { name: 'Show all' }).click()
+await page.getByRole('button', { name: 'List', exact: true }).click()
+await page.getByPlaceholder(/Search plant no/).fill('')
 
 // --- Yards & offices: set the yard to where the phone is.
 await page.getByRole('button', { name: 'Yards & offices' }).click()

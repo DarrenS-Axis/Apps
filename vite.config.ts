@@ -19,6 +19,8 @@ export default defineConfig({
           if (id.includes('jspdf')) return 'pdf'
           // The QR decoder only loads when someone scans.
           if (id.includes('jsqr')) return 'jsqr'
+          // Likewise the map, when someone opens it.
+          if (id.includes('node_modules/leaflet')) return 'leaflet'
           if (id.includes('node_modules')) return 'vendor'
           return undefined
         },

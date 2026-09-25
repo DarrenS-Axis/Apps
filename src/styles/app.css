@@ -1454,3 +1454,143 @@ table.report .report__bad {
   min-height: 0;
   flex: none;
 }
+
+/* ---------------------------------------------------------------- plant map */
+
+.plantmap {
+  position: relative;
+  /* Keeps Leaflet's panes and controls under the sheets and the tab bar. */
+  isolation: isolate;
+  z-index: 0;
+  width: 100%;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.plantmap__msg {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+.plantpin {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border-radius: 50%;
+  color: #fff;
+  font: 700 12px/1 var(--sans, system-ui, sans-serif);
+  box-shadow: 0 1px 4px rgba(11, 26, 39, 0.45);
+  cursor: pointer;
+}
+
+.plantpin--one {
+  width: 22px;
+  height: 22px;
+  background: var(--pin);
+  border: 3px solid #fff;
+  position: relative;
+}
+
+.plantpin--one span {
+  position: absolute;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #10202c;
+  font: 700 10.5px/1.3 var(--mono, ui-monospace, monospace);
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(11, 26, 39, 0.3);
+}
+
+.plantpin--many {
+  background: var(--ring);
+  padding: 4px;
+}
+
+.plantpin--many b {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--pin);
+  font-size: 12px;
+}
+
+.depotpin {
+  position: absolute;
+  /* Above the spot, so the pins of what is at the yard stay clear. */
+  transform: translate(-50%, calc(-100% - 20px));
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--navy-800);
+  color: #fff;
+  font: 700 11.5px/1.3 var(--sans, system-ui, sans-serif);
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(11, 26, 39, 0.4);
+}
+
+.mappop__head {
+  margin: 0 0 6px;
+  font-weight: 700;
+}
+
+.mappop__list {
+  max-height: 240px;
+  overflow: auto;
+}
+
+.mappop__item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mappop__item:hover {
+  background: var(--surface-2);
+}
+
+.mappop__dot {
+  flex: none;
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-top: 3px;
+  border-radius: 50%;
+}
+
+.mappop__zoom {
+  margin: 0 0 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.mappop__more {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+}
+
+[hidden] {
+  display: none !important;
+}

@@ -129,6 +129,15 @@ The Plant tab holds the state's AXIMSRG-03 Plant & Equipment Register, live.
   *available*; near a job where ITPs, penetrations, defects or plant have been located it
   is *on site* at that job; anywhere else the app asks which job. Every move is kept in the
   item's history with who, when, how and the coordinates.
+- **Map.** *List / Map* on the Plant tab puts every item at the GPS of its last photo or
+  scan, on OpenStreetMap, coloured by status — the same items the filters show, so it can
+  be one job, the missing items or a search. Items that crowd together share a numbered
+  pin (a ring shows the mix of statuses) that parts as you zoom; tapping one lists what is
+  there and opens any item. Yards and offices are marked with the distance that counts as
+  there. *Show on map* on an item draws its trail — every located sighting, oldest to
+  newest. Items not yet photographed or scanned are counted under the map rather than
+  guessed onto it. The map loads only when opened; offline the tiles are grey but the pins
+  are still placed.
 - **Yards and offices.** SA starts with *Beverley office & yard*, Unit 2/21 Alfred Ave,
   Beverley SA 5009. Until its position is confirmed it is placed from the suburb and
   matched generously; the app looks the address up when there is signal, or set it by
@@ -244,6 +253,7 @@ src/
     plantRegister.ts    AXIMSRG-03 register import, CSV export
     plantPdf.ts         QR label sheets and the plant list PDF
     qr.ts               QR codes: links, drawing, decoding
+  components/PlantMap   the plant map (Leaflet, loaded on demand)
     reporting.ts        the monthly report computations
     pdf.ts              Controldoc ITP, ITP register and Reviewdoc QA report PDFs
   components/QrScanner  camera, label-photo and typed QR reading

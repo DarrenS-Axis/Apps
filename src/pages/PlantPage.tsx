@@ -36,6 +36,7 @@ import {
 import { PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { mapsUrl } from '../components/Locate'
 import { QrScanner } from '../components/QrScanner'
+import { PlantMap } from '../components/PlantMap'
 import { ConfirmButton, Empty, Field, IconCamera, IconDownload, IconPlus, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 import { downloadBlob, formatDate, formatDateTime, relativeTime, todayIso } from '../lib/format'
 import { capturePhoto, currentPosition, formatCoords } from '../lib/images'
@@ -132,6 +133,8 @@ export function PlantPage() {
   const [show, setShow] = useState<Show>('active')
   const [where, setWhere] = useState(fromJob ?? '')
   const [limit, setLimit] = useState(PAGE)
+  const [view, setView] = useState<'list' | 'map'>('list')
+  const [focusId, setFocusId] = useState<string | null>(null)
   const [open, setOpen] = useState<{ id: string; via?: 'scan' } | null>(null)
   const [unknown, setUnknown] = useState<string | null>(null)
   const [panel, setPanel] = useState<'' | 'scan' | 'stocktake' | 'add' | 'import' | 'labels' | 'depots'>('')
@@ -311,7 +314,30 @@ export function PlantPage() {
         </select>
       </div>
 
-      <div className="card card__body--flush">
+      <div className="row" style={{ gap: 0, marginBottom: 10 }}>
+        <button className={`btn btn--sm ${view === 'list' ? '' : 'btn--ghost'}`} type="button" onClick={() => setView('list')}>
+          List
+        </button>
+        <button className={`btn btn--sm ${view === 'map' ? '' : 'btn--ghost'}`} type="button" onClick={() => setView('map')}>
+          Map
+        </button>
+      </div>
+
+      {view === 'map' ? (
+        <div className="card">
+          <div className="card__body">
+            <PlantMap
+              items={focusId ? plant.filter((i) => i.id === focusId) : filtered}
+              depots={depots}
+              focus={focusId ? plant.find((i) => i.id === focusId) : undefined}
+              onClearFocus={() => setFocusId(null)}
+              onOpen={(id) => setOpen({ id })}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="card card__body--flush" hidden={view === 'map'}>
         {plant.length === 0 ? (
           <Empty
             title="No plant on the register yet"
@@ -334,11 +360,29 @@ export function PlantPage() {
           </>
         )}
       </div>
-      <p className="small muted" style={{ textAlign: 'center' }}>
-        {filtered.length} of {plant.length} items
-      </p>
+      {view === 'list' ? (
+        <p className="small muted" style={{ textAlign: 'center' }}>
+          {filtered.length} of {plant.length} items
+        </p>
+      ) : null}
 
-      {open ? <PlantSheet id={open.id} via={open.via} projects={projects} depots={depots} onClose={() => setOpen(null)} onToast={showToast} entity={entityFor} /> : null}
+      {open ? (
+        <PlantSheet
+          id={open.id}
+          via={open.via}
+          projects={projects}
+          depots={depots}
+          onClose={() => setOpen(null)}
+          onToast={showToast}
+          entity={entityFor}
+          onShowOnMap={(id) => {
+            setOpen(null)
+            setFocusId(id)
+            setView('map')
+            window.scrollTo({ top: 0 })
+          }}
+        />
+      ) : null}
       {panel === 'scan' || panel === 'stocktake' ? (
         <ScanSheet
           initialMode={panel === 'stocktake' ? 'stocktake' : 'single'}
@@ -466,6 +510,7 @@ function PlantSheet({
   onClose,
   onToast,
   entity,
+  onShowOnMap,
 }: {
   id: string
   via?: 'scan'
@@ -474,6 +519,7 @@ function PlantSheet({
   onClose: () => void
   onToast: (m: string) => void
   entity: (s: StateCode) => string
+  onShowOnMap: (id: string) => void
 }) {
   const item = usePlantItem(id)
   const settings = useSettings()
@@ -575,7 +621,11 @@ function PlantSheet({
                   {item.accuracy ? ` ±${Math.round(item.accuracy)} m` : ''} ·{' '}
                   <a href={mapsUrl(item.lat, item.lng)} target="_blank" rel="noreferrer">
                     Open in maps
-                  </a>
+                  </a>{' '}
+                  ·{' '}
+                  <button className="linkbtn" type="button" onClick={() => onShowOnMap(item.id)}>
+                    Show on map
+                  </button>
                 </>
               ) : null}
             </>
