@@ -67,7 +67,11 @@ console or page error along the way.
   it was reconciled with; a second scan adds nothing. Then the room's tapware, the plan,
   the room data PDF and Excel export, a submission numbered `HYD-AXIS-SMP-001` with its
   location filled from the rooms, a data sheet attached (the form plus the sheet in the
-  PDF) and the architect's response, and *Draft one per sample ref*.
+  PDF) and the architect's response, and *Draft one per sample ref*. Then the schedule
+  from PDF: the room data PDF just exported read back into a new project (the same codes,
+  rooms and counts, tapware tied to its fixture, scheduled quantities), an architect's
+  schedule with no ruled lines, wrapped descriptions and a second page without its heading,
+  and the plan drawing refused as a schedule.
 - `smoke-people.mjs` — people and notifications, with the test standing in for the Power
   Automate flow. People added by hand and by CSV (lower-cased emails, state column, rows
   with no email skipped); *Send test* reaches one person. A penetration allocated to Joe

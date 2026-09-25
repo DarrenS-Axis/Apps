@@ -34,6 +34,7 @@ import {
   locationsOf,
   nextSubmissionNo,
   parseFfeWorkbook,
+  readFfePdf,
   saveFfeType,
   saveSubmission,
   totals,
@@ -461,28 +462,36 @@ function ImportSheet({ projectId, onClose, onDone }: { projectId: string; onClos
   const [error, setError] = useState('')
   const [withRooms, setWithRooms] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [reading, setReading] = useState(false)
   return (
     <Sheet title="Import FF&E schedule" onClose={onClose}>
       <div className="stack">
         <p className="small muted" style={{ margin: 0 }}>
-          The Sanitary &amp; Tapware Schedule — Sample Ref · Sanitary Code · Tapware Code · Quantity · Selection / Description · Colour / Finish. A workbook with
-          a room data sheet (Room Type / Area · Room No. · Code …) brings its rooms and fixtures in too. Codes already here are updated, not duplicated.
+          Excel or PDF. The Sanitary &amp; Tapware Schedule — Sample Ref · Sanitary Code · Tapware Code · Quantity · Selection / Description · Colour / Finish
+          — or the architect&apos;s FF&amp;E schedule (Code · Item · Description · Manufacturer · Model · Finish). A room data schedule (Room Type / Area · Room
+          No. · Code …) brings its rooms and fixtures in too. A PDF needs its text searchable, not a scan. Codes already here are updated, not duplicated.
         </p>
         <input
           type="file"
-          accept=".xlsx,.csv"
+          accept=".xlsx,.csv,.pdf,application/pdf"
           aria-label="FF&E schedule file"
           onChange={async (e) => {
             const f = e.target.files?.[0]
             if (!f) return
             setError('')
+            setParsed(null)
+            const pdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf'
             try {
-              setParsed({ ...parseFfeWorkbook(await readRegisterFile(f)), file: f.name })
+              if (pdf) setReading(true)
+              setParsed({ ...parseFfeWorkbook(pdf ? await readFfePdf(f) : await readRegisterFile(f)), file: f.name })
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Could not read that file.')
+            } finally {
+              setReading(false)
             }
           }}
         />
+        {reading ? <div className="banner banner--info">Reading the schedule tables in the PDF…</div> : null}
         {error ? <div className="banner banner--hold">{error}</div> : null}
         {parsed ? (
           <>

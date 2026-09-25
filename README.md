@@ -176,13 +176,22 @@ The Plant tab holds the state's AXIMSRG-03 Plant & Equipment Register, live.
 The Rooms tab builds the **Hydraulic Fixture Schedule – Room Data** from the architect's
 FF&E plan and the FF&E schedule, and raises the **sample / tech data submission forms**.
 
-- **Import the FF&E schedule** from Excel: the *Sanitary & Tapware Schedule* (Sample Ref ·
+- **Import the FF&E schedule** from Excel or PDF: the *Sanitary & Tapware Schedule* (Sample Ref ·
   Sanitary Code · Tapware Code · Quantity · Selection / Description · Colour / Finish) gives
   every code — fixtures, and the tapware that goes with each (`HB1 - Basin Mixer` belongs
   to `HB1`) — with its scheduled quantity. A workbook with a *Room Data* sheet (Room Type /
   Area · Room No. · Fixture · Code · … · In wall items) brings its rooms and each room's
   fixtures too; level headings ("Ground Floor") and project-wide lines are kept, a `TBC`
-  quantity stays as a note. Re-importing updates, never duplicates.
+  quantity stays as a note. Re-importing updates, never duplicates. The architect's own
+  schedule works too (Code · Item · Description · Manufacturer · Model · Finish · Qty).
+- **PDF schedules** — printed from Excel, exported from Revit, or this app's own room data
+  PDF — are read back into rows and columns. The columns come from the table's ruled lines,
+  or from the gutters no text crosses where it has none. The rows come from the horizontal
+  rules, or from the extra space between rows, so a description that wraps stays in one cell.
+  A table running over several pages is read as one, with or without its heading repeated,
+  including a row broken across a page. A line that wraps is joined back up; a deliberate
+  break (the item name over its description) is kept. A scanned PDF has no text to read and
+  is refused; so is the FF&E plan itself, with a pointer to *Scan architectural plan*.
 - **Scan the architectural plan.** The FF&E plan PDF is searched for the schedule's codes.
   Rooms are read from their labels — the name over the room number (`UTILITY` /
   `04A.G.02`) — and each tag is put in the room it sits in: the walls are traced from each
@@ -379,6 +388,7 @@ src/
     roomScan.ts         reads rooms and FF&E tags off an architectural plan PDF
     roomPdf.ts          room data schedule PDF and the sample submission form
     xlsxWrite.ts        .xlsx writer, no dependencies
+    pdfTable.ts         reads tables out of PDFs (schedules) into rows and columns
     qr.ts               QR codes: links, drawing, decoding
   components/PlantMap   the plant map (Leaflet, loaded on demand)
   components/RecordFooter  Save / Allocate / Delete bar on every record

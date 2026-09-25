@@ -44,6 +44,30 @@ function splitDescription(text: string): { name: string; description: string } {
   return { name: lines[0], description: lines.slice(1).join('\n') }
 }
 
+const oneLine = (s: string) => s.replace(/\s*\n\s*/g, ' ')
+
+/** A heading row: a code column and a description column. */
+const CODE_HEAD = /code|^\s*(ref|mark|tag|type)\.?\s*$/i
+const DESC_HEAD = /descr|selection|^\s*(item|product)\s*$/i
+export const isFfeHeader = (cells: string[]): boolean => cells.some((c) => CODE_HEAD.test(c)) && cells.some((c) => DESC_HEAD.test(c))
+
+/**
+ * For a schedule read from a PDF: does this line start a row, or carry on the
+ * one above? A row starts with a sample ref, a code, a room number or a
+ * quantity. A line with only a room type / area is a heading ("Ground Floor")
+ * after fixture rows, but the second line of a wrapped room name after a room.
+ */
+export function ffeStartsRow(cells: string[], header: string[], prev: string[] | undefined): boolean {
+  if (!prev) return true
+  const head = header.map(norm)
+  const has = (row: string[], re: RegExp) => head.some((h, i) => re.test(h) && (row[i] ?? '').trim() !== '')
+  if (has(cells, /^sample ref|code$|^code|^ref$|^mark$|^tag$|^room no|quantit|^qty/)) return true
+  const area = /^room type|^area/
+  const onlyArea = has(cells, area) && head.every((h, i) => area.test(h) || !(cells[i] ?? '').trim())
+  if (onlyArea) return has(prev, /code/)
+  return false
+}
+
 /** "HB1 - Basin Mixer" → "HB1". */
 export const tapwareParent = (code: string): string => code.split(/\s[-–]\s/)[0].trim()
 
@@ -68,22 +92,25 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
   }
 
   for (const sheet of sheets) {
-    const headerAt = sheet.rows.findIndex((r) => r.some((c) => /code/i.test(c)) && r.some((c) => /descr|selection/i.test(c)))
+    const headerAt = sheet.rows.findIndex(isFfeHeader)
     if (headerAt < 0) continue
     const head = sheet.rows[headerAt].map(norm)
     const col = (re: RegExp) => head.findIndex((h) => re.test(h))
     const c = {
       ref: col(/^sample ref/),
       sanitary: col(/^sanitary code|^fixture code/),
-      code: col(/^code$/),
+      code: col(/^(code|ref|mark|tag|type|item code|ffe code|type code)$/),
       tap: col(/^tapware code/),
-      qty: col(/quantit|^qty/),
+      qty: col(/quantit|^qty|^scheduled?$/),
       desc: col(/descr|selection/),
       finish: col(/colour|finish/),
       room: col(/^room no/),
       area: col(/^room type|^area/),
       fixture: col(/^fixture$/),
       inWall: col(/in wall/),
+      item: col(/^(item|name|product name|fixture type)$/),
+      maker: col(/manufactur|^brand|^supplier/),
+      model: col(/^model|product code|catalogue|^cat no/),
     }
     const get = (r: string[], i: number) => (i >= 0 ? (r[i] ?? '').trim() : '')
     const isRoomData = c.room >= 0
@@ -92,12 +119,24 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
     if (!isRoomData) {
       let order = types.size
       for (const r of sheet.rows.slice(headerAt + 1)) {
-        const fixture = get(r, c.sanitary >= 0 ? c.sanitary : c.code)
-        const tap = get(r, c.tap)
+        let fixture = get(r, c.sanitary >= 0 ? c.sanitary : c.code).replace(/\n/g, ' ')
+        let tap = get(r, c.tap).replace(/\n/g, ' ')
         const desc = get(r, c.desc)
         if (!fixture && !tap) continue
         if (/total/i.test(fixture + tap) && !desc) continue
-        const { name, description } = splitDescription(desc)
+        // Notes and headings under the table are not codes, nor are row numbers.
+        if ((fixture || tap).length > 30 || !/[A-Za-z]/.test(fixture || tap) || /:$|^notes?\b|^general\b|^refer\b|^total\b/i.test(fixture || tap)) continue
+        // One code column: "HB1 - Basin Mixer" is the tapware that goes with HB1.
+        if (c.tap < 0 && /\s[-–]\s/.test(fixture)) {
+          tap = fixture
+          fixture = ''
+        }
+        const item = get(r, c.item).replace(/\n/g, ' ')
+        const split = splitDescription(desc)
+        const name = item || split.name
+        const product = [get(r, c.maker), get(r, c.model)].filter(Boolean).join(' ').replace(/\n/g, ' ')
+        const description = [item ? desc : split.description, product].filter(Boolean).join('\n')
+        if (!name && !description) continue
         const qty = Number(get(r, c.qty))
         add({
           code: fixture || tap,
@@ -105,8 +144,8 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
           goesWith: fixture ? [] : [tapwareParent(tap)],
           name,
           description,
-          finish: get(r, c.finish),
-          sampleRef: get(r, c.ref),
+          finish: oneLine(get(r, c.finish)),
+          sampleRef: oneLine(get(r, c.ref)),
           scheduledQty: Number.isFinite(qty) && qty > 0 ? qty : undefined,
         })
         order++
@@ -120,11 +159,13 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
     let room: string | null = null
     let level: string | undefined
     for (const r of sheet.rows.slice(headerAt + 1)) {
-      const area = get(r, c.area)
-      const no = get(r, c.room)
-      const code = get(r, c.code)
-      const tap = get(r, c.tap)
-      const fixtureName = get(r, c.fixture)
+      // A PDF's wrapped cells come back with line breaks; names and codes are one line.
+      const one = (i: number) => get(r, i).replace(/\s*\n\s*/g, ' ')
+      const area = one(c.area)
+      const no = one(c.room).replace(/\s+/g, '')
+      const code = one(c.code)
+      const tap = one(c.tap)
+      const fixtureName = one(c.fixture)
       if (area && no) {
         room = no
         rooms.push({ number: no, name: area, level })
@@ -140,6 +181,7 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
         continue
       }
       if (!code && !tap) continue
+      if (/^total\b/i.test(code || tap)) continue
       const { name, description } = splitDescription(get(r, c.desc))
       add({
         code: code || tap,
@@ -147,8 +189,8 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
         goesWith: code ? [] : [tapwareParent(tap)],
         name: fixtureName || name,
         description: fixtureName ? [name, description].filter(Boolean).join('\n') : description,
-        finish: get(r, c.finish),
-        sampleRef: get(r, c.ref),
+        finish: oneLine(get(r, c.finish)),
+        sampleRef: oneLine(get(r, c.ref)),
         inWall: get(r, c.inWall) || undefined,
       })
       if (code && room !== null) {
@@ -158,7 +200,7 @@ export function parseFfeWorkbook(sheets: Sheet[]): ParsedWorkbook {
         items.push({ roomNumber: room, code, qty: counted ? q : 0, note: counted ? undefined : get(r, c.qty) || 'TBC' })
       }
     }
-    if (rooms.length || items.length) roomData = { rooms, items }
+    if (rooms.length || items.length) roomData = { rooms: [...(roomData?.rooms ?? []), ...rooms], items: [...(roomData?.items ?? []), ...items] }
   }
   if (!types.size) throw new Error('No FF&E schedule found — expected columns such as "Sanitary Code" or "Code", and "Description".')
   return { types: [...types.values()], roomData, sheets: used }
@@ -197,7 +239,15 @@ export async function importFfe(projectId: string, parsed: ParsedWorkbook, withR
       const k = `${i.roomId ?? ''}|${i.code.toUpperCase()}`
       placed.set(k, (placed.get(k) ?? 0) + i.qty)
     }
+    // The same fixture listed twice in a room (one line per basin) is one line with both counted.
+    const lines = new Map<string, ParsedRoomData['items'][number]>()
     for (const it of parsed.roomData.items) {
+      const k = `${it.roomNumber.toUpperCase()}|${it.code.toUpperCase()}`
+      const had = lines.get(k)
+      if (had) lines.set(k, { ...had, qty: had.qty + it.qty, note: had.note ?? it.note })
+      else lines.set(k, { ...it })
+    }
+    for (const it of lines.values()) {
       const room = it.roomNumber ? roomByNo.get(it.roomNumber.toUpperCase()) : undefined
       const key = `${room?.id ?? ''}|${it.code.toUpperCase()}`
       if (have.has(key)) continue
@@ -211,6 +261,14 @@ export async function importFfe(projectId: string, parsed: ParsedWorkbook, withR
     }
   })
   return { types: parsed.types.length, rooms: roomsAdded, items: itemsAdded }
+}
+
+/** An FF&E schedule from a PDF — printed from Excel, or the architect's. */
+export async function readFfePdf(file: Blob): Promise<Sheet[]> {
+  const { readPdfTables } = await import('./pdfTable')
+  const sheets = await readPdfTables(file, { isHeader: (line) => isFfeHeader(line.split(' | ')), startsRow: ffeStartsRow })
+  if (!sheets.length) throw new Error('No FF&E schedule table found in the PDF — expected a heading row with a code column and a description column. For the FF&E plan drawing itself, use Scan architectural plan.')
+  return sheets
 }
 
 /* ------------------------------------------------------------ records */

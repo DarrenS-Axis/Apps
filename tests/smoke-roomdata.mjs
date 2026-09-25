@@ -1,5 +1,6 @@
 // Room data and tech data submissions: an FF&E schedule imported from Excel
-// (the sanitary & tapware schedule plus a room data sheet), an architectural
+// (the sanitary & tapware schedule plus a room data sheet) and from PDF (the
+// room data schedule read back, and an architect's schedule), an architectural
 // FF&E plan scanned for the schedule's tags — rooms read from their name and
 // number, each tag put in the room it sits in, a tag between two rooms asked
 // about, a small room labelled outside its walls, and a 1:50 enlargement of
@@ -190,6 +191,49 @@ function planPdf() {
   return Buffer.from(doc.output('arraybuffer'))
 }
 
+/**
+ * The architect's FF&E schedule as a PDF: no ruled lines, the columns Code ·
+ * Item · Description · Manufacturer · Model · Finish · Qty, descriptions that
+ * wrap, a title above and a note below, running onto a second page without
+ * the heading repeated.
+ */
+function architectSchedulePdf() {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const cols = [15, 45, 95, 185, 215, 245, 275]
+  const rows = [
+    ['WC1', 'Toilet suite, ambulant', 'Wall faced toilet suite with soft close seat, concealed cistern and dual flush 4.5/3 L', 'Caroma', 'Care 660', 'White', '3'],
+    ['HB1', 'Hand basin, clinical', 'Wall hung basin with vitreous china shroud, no tap hole and no overflow', 'Caroma', 'Care 600', 'White', '4'],
+    ['HB1 - Basin Mixer', 'Basin mixer', 'Surgeon mixer, 6 L/min pressure compensating, long lever for elbow operation', 'Enware', 'ATM611-5', 'Chrome', '4'],
+    ['SK1', 'Sink, inset', 'Inset stainless steel sink with drainer', 'Oliveri', 'AP1422', '304 S/S', '1'],
+  ]
+  const more = [
+    ['SK1 - Mixer', 'Sink mixer', 'Single lever sink mixer with extended lever handle', 'Enware', 'SAF607-RB', 'Chrome', '1'],
+    ['SSEW', 'Safety shower / eyewash', 'Combination deluge shower and eyewash, hand and foot operated, freestanding', 'Enware', 'EC090', '316 S/S', '1'],
+  ]
+  const draw = (list, y) => {
+    doc.setFontSize(8)
+    for (const r of list) {
+      let lines = 1
+      r.forEach((v, i) => {
+        const wrapped = doc.splitTextToSize(v, i === 2 ? 80 : i === 0 ? 28 : 26)
+        doc.text(wrapped, cols[i], y, { lineHeightFactor: 1.2 })
+        lines = Math.max(lines, wrapped.length)
+      })
+      y += lines * 3.4 + 3
+    }
+    return y
+  }
+  doc.setFontSize(12)
+  doc.text('FF&E SCHEDULE - HYDRAULIC FIXTURES', 15, 15)
+  doc.setFontSize(8)
+  ;['CODE', 'ITEM', 'DESCRIPTION', 'MANUFACTURER', 'MODEL', 'FINISH', 'QTY'].forEach((h, i) => doc.text(h, cols[i], 26))
+  draw(rows, 34)
+  doc.addPage()
+  const y = draw(more, 20)
+  doc.text('NOTES: 1. REFER SPECIFICATION 0822 FOR INSTALLATION REQUIREMENTS.', 15, y + 12)
+  return Buffer.from(doc.output('arraybuffer'))
+}
+
 /** A one-page manufacturer's data sheet. */
 function techDataPdf() {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -206,6 +250,8 @@ fs.writeFileSync(xlsxPath, scheduleXlsx())
 const planPath = path.join(OUT, 'A-02.11 Ground Floor FF&E.pdf')
 fs.writeFileSync(planPath, planPdf())
 const techPath = path.join(OUT, 'HB1 data sheet.pdf')
+const architectPath = path.join(OUT, 'FF&E schedule (architect).pdf')
+fs.writeFileSync(architectPath, architectSchedulePdf())
 fs.writeFileSync(techPath, techDataPdf())
 
 /* -------------------------------------------------------------- run */
@@ -386,6 +432,62 @@ try {
   console.log('submissions:', data.submissions.map((s) => `${s.number} ${s.title}`).join(', '))
   check(data.submissions.length === 6, `Expected 6 submissions (one per remaining sample ref), got ${data.submissions.length}`)
   await page.screenshot({ path: path.join(OUT, '5-submissions.png'), fullPage: true })
+
+  // 6. The FF&E schedule as a PDF. First the room data schedule this project just
+  // exported, read back into a new project: the same schedule, rooms and fixtures.
+  const importPdf = async (file) => {
+    await page.getByRole('button', { name: 'Import FF&E schedule' }).click()
+    await page.getByLabel('FF&E schedule file').setInputFiles(file)
+    await page.waitForSelector('.sheet .banner--info:not(:has-text("Reading"))', { timeout: 30000 })
+    await page.waitForTimeout(300)
+    return page.locator('.sheet .banner').first().innerText()
+  }
+  await page.goto(`${BASE}/#/state`)
+  await page.waitForTimeout(600)
+  await createProject(page, { name: 'Round trip' })
+  await tab(page, 'Rooms').click()
+  await page.waitForTimeout(400)
+  const round = await importPdf(pdfFile)
+  console.log('room data PDF:', round)
+  check(/5 fixtures and 3 tapware lines, and 4 rooms holding \d+ fixtures/.test(round), `Room data PDF read back wrong: ${round}`)
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await page.waitForTimeout(700)
+  data = await readDb()
+  // The newest CLEAN UTILITY is the round-trip project's.
+  const project2 = data.rooms.filter((r) => r.number === 'G.02').sort((a, b) => b.createdAt - a.createdAt)[0]
+  const g02 = data.roomItems.filter((i) => i.roomId === project2?.id)
+  check(g02.find((i) => i.code === 'HB1')?.qty === 2 && g02.some((i) => i.code === 'SK1'), 'CLEAN UTILITY not read back from the PDF with 2 × HB1 and SK1')
+  const mixer = data.ffeTypes.find((t) => t.projectId === project2?.projectId && t.code === 'HB1 - Basin Mixer')
+  check(mixer?.kind === 'tapware' && mixer.goesWith.includes('HB1') && mixer.sampleRef === 'SAF-HYD103', 'Tapware not read back from the PDF')
+  check(data.ffeTypes.find((t) => t.projectId === project2?.projectId && t.code === 'HB1')?.scheduledQty === 4, 'Scheduled quantity not read from the PDF')
+
+  // Then the architect's schedule: no rules, wrapped descriptions, two pages, a note under it.
+  await page.goto(`${BASE}/#/state`)
+  await page.waitForTimeout(600)
+  await createProject(page, { name: 'Architect schedule' })
+  await tab(page, 'Rooms').click()
+  await page.waitForTimeout(400)
+  const arch = await importPdf(architectPath)
+  console.log('architect PDF:', arch)
+  check(/4 fixtures and 2 tapware lines/.test(arch), `Architect's schedule read wrong: ${arch}`)
+  await page.getByRole('button', { name: 'Import', exact: true }).click()
+  await page.waitForTimeout(700)
+  data = await readDb()
+  const archTypes = data.ffeTypes.filter((t) => data.ffeTypes.some((x) => x.projectId === t.projectId && x.code === 'SSEW'))
+  const wc = archTypes.find((t) => t.code === 'WC1')
+  check(wc?.name === 'Toilet suite, ambulant', `WC1 item read as ${wc?.name}`)
+  check(/dual flush 4\.5\/3 L/.test(wc?.description ?? '') && /Caroma Care 660/.test(wc?.description ?? ''), `WC1 description or product not read: ${wc?.description}`)
+  check(wc?.scheduledQty === 3 && wc.finish === 'White', 'WC1 quantity or finish not read')
+  check(archTypes.find((t) => t.code === 'SK1 - Mixer')?.goesWith.includes('SK1'), 'SK1 - Mixer on page 2 not read as SK1’s tapware')
+  check(!archTypes.some((t) => /NOTES|REFER/i.test(t.code)), 'The note under the table was read as a schedule line')
+  check(archTypes.length === 6, `Expected 6 schedule lines from the architect's PDF, got ${archTypes.map((t) => t.code).join(', ')}`)
+
+  // Not a schedule: the plan drawing is refused with a pointer to the scan.
+  await page.getByRole('button', { name: 'Import FF&E schedule' }).click()
+  await page.getByLabel('FF&E schedule file').setInputFiles(planPath)
+  await page.waitForSelector('.sheet .banner--hold', { timeout: 30000 })
+  check(/Scan architectural plan/.test(await page.locator('.sheet .banner--hold').innerText()), 'Importing the plan drawing as a schedule did not explain itself')
+  await page.screenshot({ path: path.join(OUT, '6-pdf-import.png'), fullPage: true })
 } catch (e) {
   errors.push(`threw: ${e.message}`)
   await page.screenshot({ path: path.join(OUT, 'failure.png'), fullPage: true }).catch(() => {})

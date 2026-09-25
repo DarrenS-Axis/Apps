@@ -47,7 +47,7 @@ let pdfjsPromise: Promise<PdfModule> | null = null
  * Loads pdf.js and points it at a worker bundled with the app rather than a
  * CDN — the whole app has to keep working with no signal.
  */
-async function loadPdfjs(): Promise<PdfModule> {
+export async function loadPdfjs(): Promise<PdfModule> {
   if (!pdfjsPromise) {
     pdfjsPromise = (async () => {
       try {
