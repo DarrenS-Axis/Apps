@@ -1636,3 +1636,15 @@ table.report .report__bad {
   color: var(--accent-ink);
   font-size: 12.5px;
 }
+
+/* The record bar on a full page (the ITP): pinned above the tab bar. */
+.pagefoot {
+  position: sticky;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  z-index: 30;
+  margin: 16px -14px calc(-1 * (var(--tabbar-h) + 28px) + 8px);
+  padding: 10px 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 12px rgba(16, 32, 44, 0.06);
+}

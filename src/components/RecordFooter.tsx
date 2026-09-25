@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { db } from '../data/db'
 import { createPerson, isEmail } from '../data/people'
 import { useLive, usePeople, useSettings } from '../data/store'
@@ -35,6 +35,10 @@ export function useWorkers(): { name: string; email?: string }[] {
         } else found.set(n, email)
       }
       add(settings.userName)
+      for (const i of await db.itps.toArray()) {
+        add(i.assignedTo, i.assignedEmail)
+        add(i.signOff?.name)
+      }
       for (const p of await db.penetrations.toArray()) {
         add(p.assignedTo, p.assignedEmail)
         add(p.installedBy)
@@ -113,6 +117,12 @@ export function RecordFooter({
   const [open, setOpen] = useState(false)
   const [saveProfile, setSaveProfile] = useState(true)
   const [notice, setNotice] = useState('')
+  // The notice has done its job once read; the bar goes back to its usual size.
+  useEffect(() => {
+    if (!notice) return
+    const t = window.setTimeout(() => setNotice(''), 10000)
+    return () => window.clearTimeout(t)
+  }, [notice])
   const [name, setName] = useState(allocation.assignedTo ?? '')
   const [email, setEmail] = useState(allocation.assignedEmail ?? '')
   const [due, setDue] = useState(allocation.assignDue ?? '')

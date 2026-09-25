@@ -161,9 +161,10 @@ The Plant tab holds the state's AXIMSRG-03 Plant & Equipment Register, live.
 
 ### Saving, allocating and people
 
-Every record's sheet — penetration, defect, piece of plant — ends in a bar that stays in
-reach: **Save** (fields are written as you type; Save commits any open form, confirms and
-closes), **Allocate to worker** and **Delete** off to one side.
+Every record — ITP, penetration, defect, piece of plant — ends in a bar that stays in
+reach (at the foot of the sheet, or pinned above the tabs on the ITP page): **Save** (fields are written as you type; Save commits any open form, confirms and
+closes; on an ITP it returns to the register), **Allocate to worker** and **Delete** off to
+one side.
 
 - **People** (Settings → People & notifications): a profile per worker — name, **work
   email**, mobile, role, state — added by hand or from a CSV (Name, Email, Role, Phone,

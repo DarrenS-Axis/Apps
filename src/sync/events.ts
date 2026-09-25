@@ -22,6 +22,7 @@ export type QaEventType =
   | 'penetration.allocated'
   | 'defect.allocated'
   | 'plant.allocated'
+  | 'itp.allocated'
   | 'plant.missing'
   | 'notification.test'
   | 'defect.raised'

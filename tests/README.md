@@ -60,7 +60,9 @@ console or page error along the way.
   Automate flow. People added by hand and by CSV (lower-cased emails, state column, rows
   with no email skipped); *Send test* reaches one person. A penetration allocated to Joe
   from the sheet's footer: his email fills from his profile, the event is addressed to him
-  with the due date, note and a link to the penetration, and *Save* closes the sheet. A
+  with the due date, note and a link to the penetration, and *Save* closes the sheet. An
+  ITP allocated from the bar pinned at the foot of the ITP page, its event linking to the
+  ITP, and its *Save* returning to the register with Joe shown against it. A
   defect raised goes to the NSW people who asked for defects and not to Queensland or to
   people who did not; allocating it to a new name saves them as a person. With no flow set,
   allocating plant offers a pre-written `mailto:` and posts nothing; take back and

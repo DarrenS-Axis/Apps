@@ -494,7 +494,7 @@ export interface Attachment {
   addedAt: number
 }
 
-export interface Itp {
+export interface Itp extends Allocation {
   id: string
   projectId: string
   templateCode: string

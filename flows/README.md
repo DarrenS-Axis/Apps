@@ -21,6 +21,7 @@ JSON body for each of these:
 | `penetration.defected`           | A penetration defected at review, with the defect note               |
 | `defect.raised`                  | A Reviewdoc defect raised, with service, description and cost        |
 | `defect.closed`                  | A Reviewdoc defect closed                                            |
+| `itp.allocated`                  | An ITP allocated to a worker, with due date and note                 |
 | `penetration.allocated`          | A penetration allocated to a worker, with due date and note          |
 | `defect.allocated`               | A defect allocated to a worker                                       |
 | `plant.allocated`                | A piece of plant allocated to a worker                               |
@@ -151,7 +152,7 @@ Provisioning from the app creates these on the site, each with `RecordId`,
 | QA Business Units   | Entity                                                                                 |
 | QA Projects         | BusinessUnitId, ProjectNumber, Client, Archived                                        |
 | QA Drawings         | ProjectId, Number, Revision, FilePath                                                  |
-| QA ITPs             | ProjectId, ItcNumber, ItpNumber, TemplateCode, Area, Status, Progress, OpenHolds, DateClosed |
+| QA ITPs             | ProjectId, ItcNumber, ItpNumber, TemplateCode, Area, Status, Progress, OpenHolds, DateClosed, AssignedTo, AssignedEmail, AssignDue |
 | QA Penetrations     | ProjectId, Number, Kind, Size, Ref, Material, FRL, ProfileId, Status, AssignedTo, AssignedEmail, AssignDue |
 | QA Defects          | ProjectId, Number, Service, Status, Cost, RaisedAt, AssignedTo, AssignedEmail, AssignDue |
 | QA Photos           | ProjectId, ItpId, PenetrationId, DefectId, PlantId, TakenAt, FilePath                  |
@@ -159,7 +160,7 @@ Provisioning from the app creates these on the site, each with `RecordId`,
 | QA Depots           | Address, Lat, Lng, Radius                                                              |
 | QA People           | Email, Role, Phone, Notify, AllStates, Active                                          |
 
-`AssignDue` on the three work lists makes an overdue-work reminder a simple
+`AssignDue` on the four work lists makes an overdue-work reminder a simple
 scheduled flow: daily, **Get items** where `AssignDue` is before today and the
 status is still open, and email `AssignedEmail`.
 | QA Files (library)  | `plans/`, `photos/`, `attachments/` — the images the lists point to via FilePath       |

@@ -18,6 +18,10 @@ function MyWork({ name }: { name: string }) {
       const mine = (a?: string) => a?.trim().toLowerCase() === me
       const projects = new Map((await db.projects.toArray()).map((p) => [p.id, p]))
       const rows: { key: string; to: string; title: string; sub: string; due?: string; at: number }[] = []
+      for (const i of await db.itps.toArray()) {
+        if (!mine(i.assignedTo) || i.status === 'reviewed_approved') continue
+        rows.push({ key: i.id, to: `/project/${i.projectId}/itp/${i.id}`, title: `ITP ${i.itpNumber} · ${i.title}`, sub: [i.area, projects.get(i.projectId)?.name].filter(Boolean).join(' · '), due: i.assignDue, at: i.assignedAt ?? 0 })
+      }
       for (const p of await db.penetrations.toArray()) {
         if (!mine(p.assignedTo) || p.status === 'reviewed_approved') continue
         rows.push({ key: p.id, to: `/project/${p.projectId}/firedoc?open=${p.id}`, title: `Penetration ${p.number} · ${p.size} ${p.ref}`.trim(), sub: projects.get(p.projectId)?.name ?? '', due: p.assignDue, at: p.assignedAt ?? 0 })

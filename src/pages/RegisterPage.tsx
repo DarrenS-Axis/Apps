@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { createItp } from '../data/db'
 import { useDrawings, useItps } from '../data/store'
 import { TEMPLATES, searchTemplates, templatePointCounts } from '../data/templates'
@@ -22,12 +22,19 @@ export function RegisterPage() {
   const [query, setQuery] = useState('')
   const [raising, setRaising] = useState<ItpTemplate | null>(null)
   const [toast, showToast] = useToast()
+  // Back from an ITP's Save: say it was saved.
+  const location = useLocation()
+  const saved = (location.state as { saved?: string } | null)?.saved
+  useEffect(() => {
+    if (saved) showToast(saved)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved])
 
   const filteredItps = useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = [...itps].sort((a, b) => b.updatedAt - a.updatedAt)
     if (!q) return list
-    return list.filter((i) => [i.itpNumber, i.templateCode, i.title, i.area, i.location].join(' ').toLowerCase().includes(q))
+    return list.filter((i) => [i.itpNumber, i.templateCode, i.title, i.area, i.location, i.assignedTo].join(' ').toLowerCase().includes(q))
   }, [itps, query])
 
   const templates = useMemo(() => searchTemplates(query), [query])
@@ -91,6 +98,7 @@ export function RegisterPage() {
                       <span className={`chip ${statusChipClass(status)}`}>{ITP_STATUS_LABEL[status]}</span>
                       {p.openHolds.length ? <span className="chip chip--hold">{p.openHolds.length} hold</span> : null}
                       {p.failed ? <span className="chip chip--bad">{p.failed} failed</span> : null}
+                      {itp.assignedTo ? <span className="chip chip--accent">→ {itp.assignedTo}</span> : null}
                       <span className="chip">
                         {p.signed}/{p.applicable}
                       </span>

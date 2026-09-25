@@ -33,6 +33,7 @@ import { currentPosition } from '../lib/images'
 import { blockingHoldFor, deriveStatus, formatDate, formatDateTime, itpProgress, slug, statusChipClass, todayIso } from '../lib/format'
 import { exportItpPdf } from '../lib/pdf'
 import { raiseEvent } from '../sync'
+import { RecordFooter } from '../components/RecordFooter'
 
 type Tab = 'schedule' | 'materials' | 'test' | 'plans' | 'signoff'
 
@@ -279,21 +280,46 @@ export function ItpPage() {
             <IconCopy />
             Duplicate to another area
           </button>
-          <span className="spacer" />
-          <ConfirmButton
-            label={
-              <>
-                <IconTrash />
-                Delete ITP
-              </>
-            }
-            confirmLabel="Tap again to delete"
-            onConfirm={async () => {
-              await deleteItp(itp.id)
-              navigate(`/project/${projectId}/itps`)
-            }}
-          />
         </div>
+      </div>
+
+      {/* Save, allocate and delete, in reach wherever you are in the ITP. */}
+      <div className="pagefoot">
+        <RecordFooter
+          label={`ITP ${itp.itpNumber}`}
+          describe={`ITP ${itp.itpNumber} ${itp.title} — ${itp.area || 'no area set'}${project ? ` (${project.name})` : ''}`}
+          link={`/project/${itp.projectId}/itp/${itp.id}`}
+          state={project?.state}
+          updatedAt={itp.updatedAt}
+          allocation={itp}
+          deleteLabel="Delete ITP"
+          onDelete={async () => {
+            await deleteItp(itp.id)
+            navigate(`/project/${projectId}/itps`)
+          }}
+          onSave={() => {
+            showToast(`ITP ${itp.itpNumber} saved`)
+            navigate(`/project/${projectId}/itps`, { state: { saved: `ITP ${itp.itpNumber} ${itp.area ? `(${itp.area}) ` : ''}saved` } })
+          }}
+          onAllocate={async (a) => {
+            await updateItp(
+              itp.id,
+              a
+                ? { ...a, assignedAt: Date.now(), assignedBy: settings.userName || undefined }
+                : { assignedTo: undefined, assignedEmail: undefined, assignedAt: undefined, assignedBy: undefined, assignNote: undefined, assignDue: undefined },
+            )
+            if (a) {
+              await raiseEvent({
+                event: 'itp.allocated',
+                projectId: itp.projectId,
+                link: `/project/${itp.projectId}/itp/${itp.id}`,
+                record: { itcNumber: itp.itcNumber, itpNumber: itp.itpNumber, title: itp.title, area: itp.area, assignedTo: a.assignedTo, assignedEmail: a.assignedEmail, due: a.assignDue, note: a.assignNote },
+                summary: `ITP ${itp.itpNumber} ${itp.title} (${itp.area}) allocated to ${a.assignedTo}${a.assignDue ? `, due ${a.assignDue}` : ''}`,
+              })
+            }
+            showToast(a ? `ITP ${itp.itpNumber} allocated to ${a.assignedTo}` : `ITP ${itp.itpNumber} taken back`)
+          }}
+        />
       </div>
 
       {viewing ? (
