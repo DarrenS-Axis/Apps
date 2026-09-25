@@ -161,8 +161,9 @@ export class SyncEngine {
     for (const table of SYNCED_TABLES) {
       const listId = await this.listId(table)
       const filters = [`fields/UpdatedAt gt ${opts.since}`]
-      // Business units are national; everything else is a state's own.
-      if (opts.state && table !== 'businessUnits') filters.push(`fields/State eq ${lit(opts.state)}`)
+      // Business units and people are national (national QA is in the
+      // directory of every state); everything else is a state's own.
+      if (opts.state && table !== 'businessUnits' && table !== 'people') filters.push(`fields/State eq ${lit(opts.state)}`)
       const items = await this.graph.all<SpItem>(
         `/sites/${this.siteId}/lists/${listId}/items?$expand=fields&$filter=${encodeURIComponent(filters.join(' and '))}`,
         PREFER_UNINDEXED,

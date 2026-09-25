@@ -10,22 +10,67 @@
         "schema": {
           "type": "object",
           "properties": {
-            "event": { "type": "string" },
-            "at": { "type": "string" },
-            "actor": { "type": "string" },
-            "state": { "type": "string" },
-            "businessUnit": { "type": "string" },
+            "event": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            },
+            "actor": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "businessUnit": {
+              "type": "string"
+            },
             "project": {
               "type": "object",
               "properties": {
-                "id": { "type": "string" },
-                "name": { "type": "string" },
-                "number": { "type": "string" },
-                "client": { "type": "string" }
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "string"
+                },
+                "client": {
+                  "type": "string"
+                }
               }
             },
-            "record": { "type": "object" },
-            "summary": { "type": "string" }
+            "record": {
+              "type": "object"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "recipients": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "notifyEmails": {
+              "type": "string"
+            },
+            "link": {
+              "type": "string"
+            }
           }
         }
       }
@@ -42,26 +87,43 @@
             "Post_to_NSW_QA_channel": {
               "type": "ApiConnection",
               "inputs": {
-                "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                "host": {
+                  "connection": {
+                    "name": "@parameters('$connections')['teams']['connectionId']"
+                  }
+                },
                 "method": "post",
                 "path": "/beta/teams/conversation/message/poster/Flow bot/location/@{encodeURIComponent('Channel')}",
                 "body": {
-                  "recipient": { "groupId": "<NSW team id>", "channelId": "<NSW QA channel id>" },
-                  "messageBody": "<p><b>@{triggerBody()?['summary']}</b><br/>@{triggerBody()?['project']?['name']} · @{triggerBody()?['businessUnit']}<br/>by @{triggerBody()?['actor']} at @{triggerBody()?['at']}</p>"
+                  "recipient": {
+                    "groupId": "<NSW team id>",
+                    "channelId": "<NSW QA channel id>"
+                  },
+                  "messageBody": "<p><b>@{triggerBody()?['summary']}</b><br/>@{triggerBody()?['project']?['name']} \u00b7 @{triggerBody()?['businessUnit']}<br/>by @{triggerBody()?['actor']} at @{triggerBody()?['at']}</p>"
                 }
               }
             }
           }
         }
       },
-      "default": { "actions": {} },
+      "default": {
+        "actions": {}
+      },
       "runAfter": {}
     },
     "Response": {
       "type": "Response",
       "kind": "Http",
-      "inputs": { "statusCode": 200 },
-      "runAfter": { "Switch_on_state": ["Succeeded", "Failed", "Skipped"] }
+      "inputs": {
+        "statusCode": 200
+      },
+      "runAfter": {
+        "Switch_on_state": [
+          "Succeeded",
+          "Failed",
+          "Skipped"
+        ]
+      }
     }
   },
   "outputs": {}

@@ -639,6 +639,94 @@ export const DEFAULT_SETTINGS: Settings = {
   updatedAt: 0,
 }
 
+/* ----------------------------------------------------------------- people */
+
+/**
+ * What a person can be told about. `allocated` is work handed to them; the
+ * rest are the events the app already raises, sent to whoever in the state
+ * has asked for them.
+ */
+export type NotifyKey =
+  | 'allocated'
+  | 'itp.hold_point_reached'
+  | 'itp.completed_by_site'
+  | 'penetration.completed_by_site'
+  | 'penetration.defected'
+  | 'defect.raised'
+  | 'defect.closed'
+  | 'plant.missing'
+
+export const NOTIFY_LABEL: Record<NotifyKey, string> = {
+  allocated: 'Work allocated to them',
+  'itp.hold_point_reached': 'ITP hold points needing release',
+  'itp.completed_by_site': 'ITPs completed by site, to review',
+  'penetration.completed_by_site': 'Penetrations completed by site, to review',
+  'penetration.defected': 'Penetrations defected at review',
+  'defect.raised': 'Defects raised',
+  'defect.closed': 'Defects closed',
+  'plant.missing': 'Plant marked missing',
+}
+
+export const NOTIFY_KEYS = Object.keys(NOTIFY_LABEL) as NotifyKey[]
+
+/**
+ * Someone work can be allocated to and who can be notified: a profile with
+ * a work email. People belong to a state like everything else; one marked
+ * `allStates` (national QA, say) hears about every state.
+ */
+export interface Person {
+  id: string
+  state: StateCode
+  name: string
+  /** Work email the notifications go to. */
+  email: string
+  phone?: string
+  /** Plumber, Leading hand, Supervisor, Project manager, QA… */
+  role?: string
+  company?: string
+  notify: NotifyKey[]
+  allStates?: boolean
+  active: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export const PERSON_ROLES = ['Plumber', 'Apprentice', 'Leading hand', 'Supervisor', 'Project manager', 'State QA', 'National QA', 'Subcontractor', 'Office'] as const
+
+/** Sensible starting notifications for a role; each person can change them. */
+export function defaultNotify(role?: string): NotifyKey[] {
+  switch (role) {
+    case 'Supervisor':
+    case 'Leading hand':
+      return ['allocated', 'itp.hold_point_reached', 'penetration.defected', 'defect.raised']
+    case 'Project manager':
+      return ['allocated', 'itp.hold_point_reached', 'defect.raised', 'plant.missing']
+    case 'State QA':
+    case 'National QA':
+      return ['allocated', 'itp.completed_by_site', 'penetration.completed_by_site', 'defect.raised', 'defect.closed']
+    case 'Office':
+      return ['allocated', 'plant.missing']
+    default:
+      return ['allocated']
+  }
+}
+
+/* ------------------------------------------------------------- allocation */
+
+/**
+ * Who a record has been handed to. Workers are names, as on the paper forms;
+ * an email, when given, lets a Power Automate flow tell them.
+ */
+export interface Allocation {
+  assignedTo?: string
+  assignedEmail?: string
+  assignedAt?: number
+  assignedBy?: string
+  assignNote?: string
+  /** ISO date it is wanted by. */
+  assignDue?: string
+}
+
 /* ---------------------------------------------------------------- firedoc */
 
 /**
@@ -646,7 +734,7 @@ export const DEFAULT_SETTINGS: Settings = {
  * tag on the penetration plan, so it must be unique and, once in use, never
  * changed — the plan search that pins it depends on the two being identical.
  */
-export interface Penetration {
+export interface Penetration extends Allocation {
   id: string
   projectId: string
   /** Call-out tag, e.g. "F0001" or "L07001". */
@@ -745,7 +833,7 @@ export const DEFECT_STATUS_LABEL: Record<DefectStatus, string> = {
 }
 
 /** One Reviewdoc item: a costed, located, photographed defect. */
-export interface Defect {
+export interface Defect extends Allocation {
   id: string
   projectId: string
   /** Sequential ID as printed, e.g. "0005". */
@@ -870,7 +958,7 @@ export interface PlantMove {
  * painted or engraved on the tool, which the old register used but which is
  * missing on most items and repeated on some.
  */
-export interface PlantItem {
+export interface PlantItem extends Allocation {
   id: string
   state: StateCode
   /** Unique per state, e.g. "SA-0412". The QR label carries it. */

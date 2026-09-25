@@ -21,6 +21,19 @@ JSON body for each of these:
 | `penetration.defected`           | A penetration defected at review, with the defect note               |
 | `defect.raised`                  | A Reviewdoc defect raised, with service, description and cost        |
 | `defect.closed`                  | A Reviewdoc defect closed                                            |
+| `penetration.allocated`          | A penetration allocated to a worker, with due date and note          |
+| `defect.allocated`               | A defect allocated to a worker                                       |
+| `plant.allocated`                | A piece of plant allocated to a worker                               |
+| `plant.missing`                  | Items marked missing after a yard stocktake                          |
+| `itp.reviewed_approved`          | An ITP accepted and closed out by the client / superintendent        |
+| `notification.test`              | *Send test* on a person in Settings → People                         |
+
+Every event carries **who to tell**, worked out by the app from Settings →
+People: the worker it was allocated to, plus everyone in the state (or
+marked *every state*) who ticked that event on their profile. `recipients`
+lists them with a reason; `notifyEmails` is the same as one
+`a@x.com.au; b@y.com.au` string for an Outlook or Teams "To" box. `link`
+opens the record in the app.
 
 Body shape (paste this as the trigger's **Request Body JSON Schema** — it is
 also shown in the app under *Show the request body JSON schema*):
@@ -42,13 +55,47 @@ also shown in the app under *Show the request body JSON schema*):
       }
     },
     "record": { "type": "object" },
-    "summary": { "type": "string" }
+    "summary": { "type": "string" },
+    "recipients": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": { "name": { "type": "string" }, "email": { "type": "string" }, "why": { "type": "string" } }
+      }
+    },
+    "notifyEmails": { "type": "string" },
+    "link": { "type": "string" }
   }
 }
 ```
 
 Events raised while a phone has no signal wait on the device and are posted
 in order at the next sync, once each.
+
+## Flow 0 — Email the people (event driven) — start here
+
+This is the one that makes allocation and notification emails go out.
+
+1. **Trigger**: When an HTTP request is received (method POST, schema above).
+   Copy the generated URL into the app: Settings → Microsoft 365 → *Power
+   Automate flow URL*. It works without SharePoint sync.
+2. **Condition**: `length(triggerBody()?['notifyEmails'])` is greater than 0.
+3. If yes, **Send an email (V2)** (Office 365 Outlook, from a shared mailbox
+   such as qa@ if you like):
+   - To: `@{triggerBody()?['notifyEmails']}`
+   - Subject: `Axis QA — @{triggerBody()?['summary']}`
+   - Body: `@{triggerBody()?['summary']}` · `@{triggerBody()?['project']?['name']}`
+     · due `@{triggerBody()?['record']?['due']}` · note
+     `@{triggerBody()?['record']?['note']}` · by `@{triggerBody()?['actor']}` ·
+     <a href="`@{triggerBody()?['link']}`">Open in Axis QA</a>
+4. **Response**: status 200.
+
+To send one email each instead of one to all, **Apply to each** over
+`triggerBody()?['recipients']` and send to `items('Apply_to_each')?['email']`.
+Add Flow 1's Teams post in the same flow if you want both.
+
+Without a flow, the app still lets the person allocating send the email: it
+opens their mail app with the message written, addressed to the worker.
 
 ## Flow 1 — Notify the state QA channel (event driven)
 
@@ -105,9 +152,16 @@ Provisioning from the app creates these on the site, each with `RecordId`,
 | QA Projects         | BusinessUnitId, ProjectNumber, Client, Archived                                        |
 | QA Drawings         | ProjectId, Number, Revision, FilePath                                                  |
 | QA ITPs             | ProjectId, ItcNumber, ItpNumber, TemplateCode, Area, Status, Progress, OpenHolds, DateClosed |
-| QA Penetrations     | ProjectId, Number, Kind, Size, Ref, Material, FRL, ProfileId, Status                   |
-| QA Defects          | ProjectId, Number, Service, Status, Cost, RaisedAt                                     |
-| QA Photos           | ProjectId, ItpId, PenetrationId, DefectId, TakenAt, FilePath                           |
+| QA Penetrations     | ProjectId, Number, Kind, Size, Ref, Material, FRL, ProfileId, Status, AssignedTo, AssignedEmail, AssignDue |
+| QA Defects          | ProjectId, Number, Service, Status, Cost, RaisedAt, AssignedTo, AssignedEmail, AssignDue |
+| QA Photos           | ProjectId, ItpId, PenetrationId, DefectId, PlantId, TakenAt, FilePath                  |
+| QA Plant            | PlantNo, AxisNo, EquipmentType, BrandModel, Serial, Status, Location, ProjectId, SeenAt, SeenBy, LastTestAt, AssignedTo, AssignedEmail, AssignDue |
+| QA Depots           | Address, Lat, Lng, Radius                                                              |
+| QA People           | Email, Role, Phone, Notify, AllStates, Active                                          |
+
+`AssignDue` on the three work lists makes an overdue-work reminder a simple
+scheduled flow: daily, **Get items** where `AssignDue` is before today and the
+status is still open, and email `AssignedEmail`.
 | QA Files (library)  | `plans/`, `photos/`, `attachments/` — the images the lists point to via FilePath       |
 
 `Payload` holds the full record as JSON and is what the app reads back; the

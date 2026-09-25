@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { PeopleAdmin } from '../components/PeopleAdmin'
 import { createBusinessUnit, exportBackup, importBackup, saveSettings, storageEstimate, updateBusinessUnit } from '../data/db'
 import { useBusinessUnits, useOutboxCount, useSettings } from '../data/store'
 import { TEMPLATES } from '../data/templates'
@@ -120,6 +121,8 @@ export function SettingsPage() {
           <BusinessUnitsAdmin state={settings.state} />
         </div>
       </div>
+
+      <PeopleAdmin onToast={showToast} />
 
       <SharePointSection config={settings.sync} onToast={showToast} />
 
@@ -341,6 +344,17 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
               </span>
             </span>
           </label>
+          {/* Notifications work with or without SharePoint sync. */}
+          <Field
+            label="Power Automate flow URL (notifications)"
+            hint='The "When an HTTP request is received" URL. The app posts an event — with the people to email — when work is allocated, a hold point is reached, an ITP or penetration is completed or defected, a defect is raised or closed, or plant goes missing.'
+          >
+            <input type="url" value={config.powerAutomateUrl ?? ''} onChange={(e) => void set({ powerAutomateUrl: e.target.value.trim() })} placeholder="https://prod-….logic.azure.com/workflows/…" />
+          </Field>
+          <button className="btn btn--ghost btn--sm" type="button" onClick={() => setShowSchema(!showSchema)} style={{ alignSelf: 'flex-start' }}>
+            {showSchema ? 'Hide' : 'Show'} the request body JSON schema for the flow
+          </button>
+          {showSchema ? <pre className="small mono" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(EVENT_SCHEMA, null, 2)}</pre> : null}
           {config.mode === 'sharepoint' ? (
             <>
               <Field label="SharePoint site URL" hint="The site the QA lists live in, e.g. https://axisplumbing.sharepoint.com/sites/QA">
@@ -388,13 +402,6 @@ function SharePointSection({ config, onToast }: { config: SyncConfig; onToast: (
                   </div>
                 </div>
               ) : null}
-              <Field label="Power Automate flow URL" hint='The "When an HTTP request is received" URL. The app posts an event when an ITP is completed or defected, a hold point is reached, a penetration is defected, or a defect is raised or closed.'>
-                <input type="url" value={config.powerAutomateUrl ?? ''} onChange={(e) => void set({ powerAutomateUrl: e.target.value.trim() })} placeholder="https://prod-….logic.azure.com/workflows/…" />
-              </Field>
-              <button className="btn btn--ghost btn--sm" type="button" onClick={() => setShowSchema(!showSchema)} style={{ alignSelf: 'flex-start' }}>
-                {showSchema ? 'Hide' : 'Show'} the request body JSON schema for the flow
-              </button>
-              {showSchema ? <pre className="small mono" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{JSON.stringify(EVENT_SCHEMA, null, 2)}</pre> : null}
               <button className="btn btn--ghost btn--sm" type="button" onClick={() => setShowAdvanced(!showAdvanced)} style={{ alignSelf: 'flex-start' }}>
                 {showAdvanced ? 'Hide' : 'Show'} advanced
               </button>

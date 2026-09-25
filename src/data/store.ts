@@ -1,7 +1,7 @@
 import { liveQuery } from 'dexie'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { db, loadSettings } from './db'
-import type { BusinessUnit, Defect, Depot, Drawing, Itp, Penetration, Photo, PlantItem, Project, Settings, StateCode } from './types'
+import type { BusinessUnit, Defect, Depot, Drawing, Itp, Penetration, Person, Photo, PlantItem, Project, Settings, StateCode } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 /**
@@ -106,6 +106,20 @@ export function useDefects(projectId?: string): Defect[] {
 
 export function useDefect(id?: string): Defect | undefined {
   return useLive(() => (id ? db.defects.get(id) : undefined), [id], undefined)
+}
+
+const EMPTY_PEOPLE: Person[] = []
+
+/** People profiles: a state's, plus anyone who covers every state; all of them for 'all'. */
+export function usePeople(state?: StateCode | 'all'): Person[] {
+  return useLive(
+    async () => {
+      const all = await db.people.toArray()
+      return (state === 'all' || !state ? all : all.filter((p) => p.state === state || p.allStates)).sort((a, b) => a.name.localeCompare(b.name))
+    },
+    [state],
+    EMPTY_PEOPLE,
+  )
 }
 
 /** A state's plant register; every state's for national QA (no state given). */

@@ -181,7 +181,7 @@ export function Sheet({
           </button>
         </div>
         <div className="sheet__body">{children}</div>
-        {footer ? <div className="sheet__body" style={{ paddingTop: 0 }}>{footer}</div> : null}
+        {footer ? <div className="sheet__foot">{footer}</div> : null}
       </div>
     </div>
   )

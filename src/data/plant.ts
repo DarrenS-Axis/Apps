@@ -263,6 +263,45 @@ export async function recordSighting(
   return updated ? { item: updated, placement } : undefined
 }
 
+/* ---------------------------------------------------------- allocation */
+
+/**
+ * Hands an item to a worker, or takes it back (null). Kept in the item's
+ * history beside its moves, so who had it when is on the record.
+ */
+export async function allocatePlant(
+  id: string,
+  a: { assignedTo: string; assignedEmail?: string; assignNote?: string; assignDue?: string } | null,
+  by?: string,
+): Promise<void> {
+  await db.transaction('rw', db.plant, async () => {
+    const item = await db.plant.get(id)
+    if (!item) return
+    const entry: PlantMove = {
+      at: now(),
+      by,
+      status: item.status,
+      location: item.location,
+      depotId: item.depotId,
+      projectId: item.projectId,
+      via: 'manual',
+      note: a
+        ? `Allocated to ${a.assignedTo}${a.assignDue ? `, wanted by ${a.assignDue}` : ''}${a.assignNote ? ` — ${a.assignNote}` : ''}`
+        : `Taken back from ${item.assignedTo ?? 'the worker'}`,
+    }
+    await db.plant.update(id, {
+      assignedTo: a?.assignedTo,
+      assignedEmail: a?.assignedEmail,
+      assignNote: a?.assignNote,
+      assignDue: a?.assignDue,
+      assignedAt: a ? now() : undefined,
+      assignedBy: a ? by : undefined,
+      history: [...item.history, entry],
+      updatedAt: now(),
+    })
+  })
+}
+
 /* -------------------------------------------------------------- depots */
 
 export async function createDepot(input: Omit<Depot, 'id' | 'createdAt' | 'updatedAt'>): Promise<Depot> {

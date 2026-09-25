@@ -10,6 +10,7 @@ import {
   findPlantByNo,
   geocodeAddress,
   isStale,
+  allocatePlant,
   movePlant,
   recordSighting,
   STALE_DAYS,
@@ -36,6 +37,8 @@ import {
 import { PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { mapsUrl } from '../components/Locate'
 import { QrScanner } from '../components/QrScanner'
+import { RecordFooter } from '../components/RecordFooter'
+import { raiseEvent } from '../sync'
 import { PlantMap } from '../components/PlantMap'
 import { ConfirmButton, Empty, Field, IconCamera, IconDownload, IconPlus, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 import { downloadBlob, formatDate, formatDateTime, relativeTime, todayIso } from '../lib/format'
@@ -109,9 +112,16 @@ export function PlantTagLink() {
   return <Navigate to="/plant" replace state={{ tag: plantNo }} />
 }
 
+/** A link from a notification: opens the item without counting as a sighting. */
+export function PlantItemLink() {
+  const { plantNo } = useParams()
+  return <Navigate to="/plant" replace state={{ tag: plantNo, view: true }} />
+}
+
 export function PlantPage() {
   const location = useLocation()
   const tagged = (location.state as { tag?: string } | null)?.tag
+  const justView = Boolean((location.state as { view?: boolean } | null)?.view)
   // Arriving from a project: its plant.
   const fromJob = (location.state as { where?: string } | null)?.where
   const navigate = useNavigate()
@@ -147,7 +157,7 @@ export function PlantPage() {
     if (!tagged || !states.length) return
     navigate('/plant', { replace: true, state: null })
     void findPlantByNo(tagged, states).then((item) => {
-      if (item) setOpen({ id: item.id, via: 'scan' })
+      if (item) setOpen(justView ? { id: item.id } : { id: item.id, via: 'scan' })
       else setUnknown(tagged.toUpperCase())
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,7 +206,7 @@ export function PlantPage() {
       if (show === 'unlocated' && (i.status === 'disposed' || i.seenAt)) return false
       if (where && (i.location || '') !== (where === '(none)' ? '' : where)) return false
       if (!q) return true
-      return [i.plantNo, i.axisNo, i.type, i.brandModel, i.serial, i.location, i.notes].join(' ').toLowerCase().includes(q)
+      return [i.plantNo, i.axisNo, i.type, i.brandModel, i.serial, i.location, i.notes, i.assignedTo].join(' ').toLowerCase().includes(q)
     })
   }, [plant, query, show, where])
 
@@ -294,7 +304,7 @@ export function PlantPage() {
       </div>
 
       <div className="searchbar" style={{ marginTop: 12 }}>
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search plant no., type, brand, serial, Axis no." />
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search plant no., type, brand, serial, Axis no., worker" />
       </div>
       <div className="row" style={{ gap: 8, marginBottom: 10 }}>
         <select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value as Show)} style={{ flex: 1 }}>
@@ -494,6 +504,7 @@ function PlantRow({ item, onOpen }: { item: PlantItem; onOpen: () => void }) {
           {item.seenAt ? <span className="chip chip--ok">Seen {relativeTime(item.seenAt)}</span> : <span className="chip">Not located yet</span>}
           {isStale(item) ? <span className="chip chip--warn">Not seen {STALE_DAYS}+ days</span> : null}
           {tag?.overdue && item.status !== 'disposed' ? <span className="chip chip--hold">Test & tag due {formatDate(tag.due)}</span> : null}
+          {item.assignedTo ? <span className="chip chip--accent">→ {item.assignedTo}</span> : null}
         </span>
       </span>
     </button>
@@ -529,6 +540,7 @@ function PlantSheet({
   const [result, setResult] = useState<{ text: string; tone: 'ok' | 'info' | 'warn'; geo?: Sighting; via: PlantMove['via']; photoId?: string } | null>(null)
   const [moving, setMoving] = useState(false)
   const [editing, setEditing] = useState(false)
+  const detailsSave = useRef<(() => Promise<void>) | null>(null)
   const cameraRef = useRef<HTMLInputElement | null>(null)
   const galleryRef = useRef<HTMLInputElement | null>(null)
   const scanned = useRef(false)
@@ -599,7 +611,44 @@ function PlantSheet({
   const history = [...item.history].reverse()
 
   return (
-    <Sheet title={`${item.plantNo} · ${item.type}`} onClose={onClose}>
+    <Sheet
+      title={`${item.plantNo} · ${item.type}`}
+      onClose={onClose}
+      footer={
+        <RecordFooter
+          label={item.plantNo}
+          describe={`${item.plantNo} ${item.type}${item.brandModel ? ` (${item.brandModel})` : ''} — ${PLANT_STATUS_LABEL[item.status].toLowerCase()}${item.location ? `, ${item.location}` : ''}`}
+          link={`/plant/item/${encodeURIComponent(item.plantNo)}`}
+          state={item.state}
+          updatedAt={item.updatedAt}
+          allocation={item}
+          deleteLabel="Delete from register"
+          onDelete={async () => {
+            await deletePlantItem(item.id)
+            onToast(`${item.plantNo} deleted`)
+            onClose()
+          }}
+          onSave={async () => {
+            await detailsSave.current?.()
+            onToast(`${item.plantNo} saved`)
+            onClose()
+          }}
+          onAllocate={async (a) => {
+            await allocatePlant(item.id, a, settings.userName || undefined)
+            if (a) {
+              await raiseEvent({
+                event: 'plant.allocated',
+                state: item.state,
+                link: `/plant/item/${encodeURIComponent(item.plantNo)}`,
+                record: { plantNo: item.plantNo, type: item.type, brandModel: item.brandModel, location: item.location, assignedTo: a.assignedTo, assignedEmail: a.assignedEmail, due: a.assignDue, note: a.assignNote },
+                summary: `${item.plantNo} ${item.type} allocated to ${a.assignedTo}${a.assignDue ? `, wanted by ${a.assignDue}` : ''}`,
+              })
+            }
+            onToast(a ? `${item.plantNo} allocated to ${a.assignedTo}` : `${item.plantNo} taken back`)
+          }}
+        />
+      }
+    >
       <div className="stack">
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <span className={`chip ${STATUS_CLASS[item.status]}`}>{PLANT_STATUS_LABEL[item.status]}</span>
@@ -687,7 +736,7 @@ function PlantSheet({
 
         {/* Details from the register */}
         {editing ? (
-          <DetailsForm item={item} onDone={() => setEditing(false)} />
+          <DetailsForm item={item} onDone={() => setEditing(false)} saveRef={detailsSave} />
         ) : (
           <div className="card" style={{ margin: 0 }}>
             <div className="card__body">
@@ -795,18 +844,6 @@ function PlantSheet({
               </li>
             ))}
           </ol>
-        </div>
-
-        <div className="row row--end">
-          <ConfirmButton
-            label="Delete from register"
-            confirmLabel="Tap again to delete"
-            onConfirm={async () => {
-              await deletePlantItem(item.id)
-              onToast(`${item.plantNo} deleted`)
-              onClose()
-            }}
-          />
         </div>
       </div>
       {viewing ? <PhotoViewer photo={viewing} onClose={() => setViewing(null)} onChanged={() => undefined} onDeleted={() => setViewing(null)} /> : null}
@@ -932,7 +969,7 @@ function MovePanel({
   )
 }
 
-function DetailsForm({ item, onDone }: { item: PlantItem; onDone: () => void }) {
+function DetailsForm({ item, onDone, saveRef }: { item: PlantItem; onDone: () => void; saveRef: { current: (() => Promise<void>) | null } }) {
   const [d, setD] = useState({
     type: item.type,
     brandModel: item.brandModel,
@@ -945,6 +982,28 @@ function DetailsForm({ item, onDone }: { item: PlantItem; onDone: () => void }) 
     notes: item.notes ?? '',
   })
   const set = (k: keyof typeof d) => (e: { target: { value: string } }) => setD({ ...d, [k]: e.target.value })
+  const commit = async () => {
+    if (!d.type.trim()) return
+    await updatePlantItem(item.id, {
+      type: d.type.trim(),
+      brandModel: d.brandModel.trim(),
+      serial: d.serial.trim(),
+      axisNo: d.axisNo.trim() || undefined,
+      calibration: d.calibration || undefined,
+      calibratedAt: d.calibratedAt || undefined,
+      lastTestAt: d.lastTestAt || undefined,
+      lastTestNote: d.lastTestNote.trim() || undefined,
+      notes: d.notes.trim() || undefined,
+    })
+  }
+  // The sheet's own Save commits this form too.
+  saveRef.current = commit
+  useEffect(
+    () => () => {
+      saveRef.current = null
+    },
+    [saveRef],
+  )
   return (
     <div className="card" style={{ margin: 0 }}>
       <div className="card__body stack">
@@ -990,17 +1049,7 @@ function DetailsForm({ item, onDone }: { item: PlantItem; onDone: () => void }) 
             type="button"
             disabled={!d.type.trim()}
             onClick={async () => {
-              await updatePlantItem(item.id, {
-                type: d.type.trim(),
-                brandModel: d.brandModel.trim(),
-                serial: d.serial.trim(),
-                axisNo: d.axisNo.trim() || undefined,
-                calibration: d.calibration || undefined,
-                calibratedAt: d.calibratedAt || undefined,
-                lastTestAt: d.lastTestAt || undefined,
-                lastTestNote: d.lastTestNote.trim() || undefined,
-                notes: d.notes.trim() || undefined,
-              })
+              await commit()
               onDone()
             }}
           >
@@ -1147,6 +1196,16 @@ function ScanSheet({
                     for (const i of notScanned) {
                       await movePlant(i.id, { status: 'missing', location: i.location, depotId: i.depotId, via: 'stocktake', by: settings.userName || undefined, note: `Not found in the ${depot.name} stocktake` })
                     }
+                    await raiseEvent({
+                      event: 'plant.missing',
+                      state: depot.state,
+                      link: '/plant',
+                      record: { depot: depot.name, count: notScanned.length, items: notScanned.map((i) => `${i.plantNo} ${i.type}`) },
+                      summary: `${notScanned.length} item${notScanned.length === 1 ? '' : 's'} not found in the ${depot.name} stocktake by ${settings.userName || 'someone'}: ${notScanned
+                        .slice(0, 12)
+                        .map((i) => `${i.plantNo} ${i.type}`)
+                        .join(', ')}${notScanned.length > 12 ? '…' : ''}`,
+                    })
                   }}
                 />
               </div>

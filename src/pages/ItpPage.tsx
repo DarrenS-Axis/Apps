@@ -32,6 +32,7 @@ import { LocationLine, PlanImporter, type Geo } from '../components/Locate'
 import { currentPosition } from '../lib/images'
 import { blockingHoldFor, deriveStatus, formatDate, formatDateTime, itpProgress, slug, statusChipClass, todayIso } from '../lib/format'
 import { exportItpPdf } from '../lib/pdf'
+import { raiseEvent } from '../sync'
 
 type Tab = 'schedule' | 'materials' | 'test' | 'plans' | 'signoff'
 
@@ -83,6 +84,17 @@ export function ItpPage() {
       signedBy: settings.userName,
     })
     showToast(`Item ${item.no} signed`)
+    // Work has now reached a hold point: whoever releases it needs to know.
+    const next = itp.items.find((i) => i.no !== item.no && i.status === 'pending')
+    if (next?.point === 'H' && itp.items.indexOf(next) > itp.items.indexOf(item)) {
+      await raiseEvent({
+        event: 'itp.hold_point_reached',
+        projectId: itp.projectId,
+        link: `/project/${itp.projectId}/itp/${itp.id}`,
+        record: { itcNumber: itp.itcNumber, itpNumber: itp.itpNumber, title: itp.title, area: itp.area, holdPoint: next.no, step: next.installation },
+        summary: `Hold point ${next.no} reached on ITP ${itp.itpNumber} ${itp.title} (${itp.area}) — ${next.installation}`,
+      })
+    }
     // Signing is done where the work is, so this is where the ITP was inspected.
     if (itp.lat === undefined && settings.captureGps) {
       void whereAmI().then((where) => where && locateItpIfMissing(itp.id, where))
@@ -1632,6 +1644,15 @@ function SignOffTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }
                     status: canComplete ? 'completed_by_site' : itp.status,
                   })
                   onToast('ITP signed off')
+                  if (canComplete) {
+                    await raiseEvent({
+                      event: 'itp.completed_by_site',
+                      projectId: itp.projectId,
+                      link: `/project/${itp.projectId}/itp/${itp.id}`,
+                      record: { itcNumber: itp.itcNumber, itpNumber: itp.itpNumber, title: itp.title, area: itp.area, signedBy: name },
+                      summary: `ITP ${itp.itpNumber} ${itp.title} (${itp.area}) completed by site — signed off by ${name}`,
+                    })
+                  }
                   if (itp.lat === undefined && settings.captureGps) {
                     void whereAmI().then((where) => where && locateItpIfMissing(itp.id, where))
                   }
@@ -1699,6 +1720,13 @@ function SignOffTab({ itp, onToast }: { itp: Itp; onToast: (m: string) => void }
                     status: 'reviewed_approved',
                   })
                   onToast('ITP accepted and closed out')
+                  await raiseEvent({
+                    event: 'itp.reviewed_approved',
+                    projectId: itp.projectId,
+                    link: `/project/${itp.projectId}/itp/${itp.id}`,
+                    record: { itcNumber: itp.itcNumber, itpNumber: itp.itpNumber, title: itp.title, area: itp.area, acceptedBy: clientName },
+                    summary: `ITP ${itp.itpNumber} ${itp.title} (${itp.area}) accepted by ${clientName}`,
+                  })
                 }}
               >
                 <IconCheck />

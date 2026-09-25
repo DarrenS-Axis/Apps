@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { createDrawing, createPenetration, db, deletePenetration, importPenetrations, updatePenetration } from '../data/db'
 import { useDrawings, usePenetration, usePenetrations, useProject, useRecordPhotos, useSettings } from '../data/store'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { PlanViewer } from '../components/PlanViewer'
 import { LocationLine, PlanImporter, useDeviceLocation, type Geo } from '../components/Locate'
-import { ConfirmButton, Empty, Field, IconCheck, IconPin, IconPlus, IconTrash, IconWarn, Sheet, Toast, useToast } from '../components/ui'
+import { RecordFooter } from '../components/RecordFooter'
+import { Empty, Field, IconCheck, IconPin, IconPlus, IconWarn, Sheet, Toast, useToast } from '../components/ui'
 import { FIRE_ELEMENTS, FIRE_SIZES, fireProfile, matchProfiles, SCHEDULE_REVISION, type FireElement } from '../data/libraries/fireProfiles'
 import { QA_STATUS_LABEL, QA_STATUSES, type Drawing, type Penetration, type Photo, type QaStatus } from '../data/types'
 import { readingOrder, scanPenetrationPlan, tagKey, type ScannedPage, type ScanProgress } from '../lib/autopin'
@@ -40,7 +41,9 @@ export function FiredocPage() {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<QaStatus | ''>('')
   const [kind, setKind] = useState<'' | 'floor' | 'wall'>('')
-  const [openId, setOpenId] = useState<string | null>(null)
+  // A link from a notification opens the record: …?open=<id>.
+  const [search] = useSearchParams()
+  const [openId, setOpenId] = useState<string | null>(() => search.get('open'))
   const [importing, setImporting] = useState(false)
   const [adding, setAdding] = useState(false)
   const [view, setView] = useState<'list' | 'plan'>('list')
@@ -54,7 +57,7 @@ export function FiredocPage() {
       (p) =>
         (!status || p.status === status) &&
         (!kind || p.kind === kind) &&
-        (!q || [p.number, p.ref, p.size, p.material, p.level, p.zone, p.profileId].join(' ').toUpperCase().includes(q)),
+        (!q || [p.number, p.ref, p.size, p.material, p.level, p.zone, p.profileId, p.assignedTo].join(' ').toUpperCase().includes(q)),
     )
   }, [pens, query, status, kind])
 
@@ -135,7 +138,7 @@ export function FiredocPage() {
       ) : null}
 
       <div className="searchbar" style={{ marginTop: 12 }}>
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search number, size, ref, material, profile" />
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search number, size, ref, material, profile, worker" />
       </div>
       <div className="row" style={{ gap: 8, marginBottom: 10 }}>
         <select value={status} onChange={(e) => setStatus(e.target.value as QaStatus | '')} style={{ flex: 1 }}>
@@ -180,6 +183,7 @@ export function FiredocPage() {
                     {p.frl ? <span className="chip">FRL {p.frl}</span> : null}
                     {p.drawingId && p.x !== undefined ? <span className="chip chip--surv">{p.autoPinned ? 'Autopinned' : 'Pinned'}</span> : <span className="chip chip--warn">Not on a plan</span>}
                     {p.lat !== undefined ? <span className="chip chip--ok">GPS</span> : null}
+                    {p.assignedTo ? <span className="chip chip--accent">→ {p.assignedTo}</span> : null}
                   </span>
                 </span>
               </button>
@@ -243,6 +247,7 @@ function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () =>
   const [choosingPlan, setChoosingPlan] = useState(false)
   const [importing, setImporting] = useState(false)
   const [locating, setLocating] = useState(false)
+  const project = useProject(pen?.projectId)
 
   if (!pen) return null
   const profile = fireProfile(pen.profileId)
@@ -286,6 +291,7 @@ function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () =>
       await raiseEvent({
         event: status === 'defected' ? 'penetration.defected' : 'penetration.completed_by_site',
         projectId: pen.projectId,
+        link: `/project/${pen.projectId}/firedoc?open=${pen.id}`,
         record: { number: pen.number, size: pen.size, ref: pen.ref, profile: pen.profileId, defect: defectNote || undefined },
         summary: `Penetration ${pen.number} ${QA_STATUS_LABEL[status].toLowerCase()}${defectNote ? ` — ${defectNote}` : ''}`,
       })
@@ -294,7 +300,43 @@ function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () =>
   }
 
   return (
-    <Sheet title={`Penetration ${pen.number}`} onClose={onClose}>
+    <Sheet
+      title={`Penetration ${pen.number}`}
+      onClose={onClose}
+      footer={
+        <RecordFooter
+          label={pen.number}
+          describe={`Penetration ${pen.number} — ${[`${pen.size} ${pen.ref}`.trim(), pen.kind === 'wall' ? 'wall' : 'floor', pen.level, project?.name].filter(Boolean).join(', ')}`}
+          link={`/project/${pen.projectId}/firedoc?open=${pen.id}`}
+          state={project?.state}
+          updatedAt={pen.updatedAt}
+          allocation={pen}
+          deleteLabel="Delete penetration"
+          onDelete={async () => {
+            await deletePenetration(pen.id)
+            onToast(`${pen.number} deleted`)
+            onClose()
+          }}
+          onSave={() => {
+            onToast(`${pen.number} saved`)
+            onClose()
+          }}
+          onAllocate={async (a) => {
+            await patch(a ? { ...a, assignedAt: Date.now(), assignedBy: settings.userName || undefined } : { assignedTo: undefined, assignedEmail: undefined, assignedAt: undefined, assignedBy: undefined, assignNote: undefined, assignDue: undefined })
+            if (a) {
+              await raiseEvent({
+                event: 'penetration.allocated',
+                projectId: pen.projectId,
+                link: `/project/${pen.projectId}/firedoc?open=${pen.id}`,
+                record: { number: pen.number, size: pen.size, ref: pen.ref, level: pen.level, assignedTo: a.assignedTo, assignedEmail: a.assignedEmail, due: a.assignDue, note: a.assignNote },
+                summary: `Penetration ${pen.number} allocated to ${a.assignedTo}${a.assignDue ? `, due ${a.assignDue}` : ''}`,
+              })
+            }
+            onToast(a ? `${pen.number} allocated to ${a.assignedTo}` : `${pen.number} taken back`)
+          }}
+        />
+      }
+    >
       <div className="stack">
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <span className={`chip ${STATUS_CLASS[pen.status]}`}>{QA_STATUS_LABEL[pen.status]}</span>
@@ -497,22 +539,6 @@ function PenetrationSheet({ id, onClose, onToast }: { id: string; onClose: () =>
           </div>
         </div>
 
-        <div className="row">
-          <span className="spacer" />
-          <ConfirmButton
-            label={
-              <>
-                <IconTrash />
-                Delete penetration
-              </>
-            }
-            confirmLabel="Delete for good"
-            onConfirm={async () => {
-              await deletePenetration(pen.id)
-              onClose()
-            }}
-          />
-        </div>
       </div>
       {viewing ? <PhotoViewer photo={viewing} onClose={() => setViewing(null)} onChanged={() => undefined} onDeleted={() => setViewing(null)} /> : null}
       {pickingProfile ? (

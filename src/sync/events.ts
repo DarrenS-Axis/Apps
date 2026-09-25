@@ -1,5 +1,7 @@
 import { db, uid } from '../data/db'
 import { loadSettings } from '../data/db'
+import { recipientsFor } from '../data/people'
+import { appBase } from '../lib/qr'
 
 /**
  * Events the app raises for Power Automate.
@@ -17,6 +19,11 @@ export type QaEventType =
   | 'itp.hold_point_reached'
   | 'penetration.completed_by_site'
   | 'penetration.defected'
+  | 'penetration.allocated'
+  | 'defect.allocated'
+  | 'plant.allocated'
+  | 'plant.missing'
+  | 'notification.test'
   | 'defect.raised'
   | 'defect.closed'
   | 'sync.completed'
@@ -30,6 +37,15 @@ export interface QaEvent {
   project?: { id: string; name: string; number?: string; client?: string }
   record?: Record<string, unknown>
   summary: string
+  /**
+   * Who should be told, from the People profiles: the person work was
+   * allocated to, and everyone in the state who asked for this event.
+   */
+  recipients: { name: string; email: string; why: string }[]
+  /** The same, as one "a@x; b@y" string — straight into an Outlook or Teams "To". */
+  notifyEmails: string
+  /** Opens the record in the app. */
+  link?: string
 }
 
 /** The JSON schema to paste into the flow trigger, so the fields are typed downstream. */
@@ -47,10 +63,18 @@ export const EVENT_SCHEMA = {
     },
     record: { type: 'object' },
     summary: { type: 'string' },
+    recipients: {
+      type: 'array',
+      items: { type: 'object', properties: { name: { type: 'string' }, email: { type: 'string' }, why: { type: 'string' } } },
+    },
+    notifyEmails: { type: 'string' },
+    link: { type: 'string' },
   },
 }
 
-export async function raiseEvent(input: Omit<QaEvent, 'at' | 'actor'> & { projectId?: string }): Promise<void> {
+export async function raiseEvent(
+  input: Omit<QaEvent, 'at' | 'actor' | 'recipients' | 'notifyEmails' | 'link'> & { projectId?: string; /** App route, e.g. "/plant/tag/SA-0001". */ link?: string },
+): Promise<void> {
   const settings = await loadSettings()
   if (!settings.sync.powerAutomateUrl) return
   let project = input.project
@@ -64,7 +88,15 @@ export async function raiseEvent(input: Omit<QaEvent, 'at' | 'actor'> & { projec
       businessUnit = (await db.businessUnits.get(p.businessUnitId))?.name
     }
   }
+  const record = input.record ?? {}
+  const recipients = await recipientsFor(input.event, state, {
+    name: typeof record.assignedTo === 'string' ? record.assignedTo : undefined,
+    email: typeof record.assignedEmail === 'string' ? record.assignedEmail : undefined,
+  })
   const payload: QaEvent = {
+    recipients,
+    notifyEmails: recipients.map((r) => r.email).join('; '),
+    link: input.link ? `${appBase()}#${input.link}` : undefined,
     event: input.event,
     at: new Date().toISOString(),
     actor: settings.userName || settings.sync.account?.name || 'Unknown',

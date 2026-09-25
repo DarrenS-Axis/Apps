@@ -1,5 +1,5 @@
 import type { SyncedTable } from '../data/db'
-import type { Defect, Depot, Drawing, Itp, Penetration, Photo, PlantItem, Project } from '../data/types'
+import type { Defect, Depot, Drawing, Itp, Penetration, Person, Photo, PlantItem, Project } from '../data/types'
 import { PLANT_STATUS_LABEL, QA_STATUS_LABEL } from '../data/types'
 
 /**
@@ -92,6 +92,9 @@ export const LISTS: ListDef[] = [
       { name: 'Lat', type: 'number' },
       { name: 'Lng', type: 'number' },
       { name: 'DrawingId', type: 'text' },
+      { name: 'AssignedTo', type: 'text' },
+      { name: 'AssignedEmail', type: 'text' },
+      { name: 'AssignDue', type: 'text' },
     ],
   },
   {
@@ -108,6 +111,9 @@ export const LISTS: ListDef[] = [
       { name: 'Lat', type: 'number' },
       { name: 'Lng', type: 'number' },
       { name: 'DrawingId', type: 'text' },
+      { name: 'AssignedTo', type: 'text' },
+      { name: 'AssignedEmail', type: 'text' },
+      { name: 'AssignDue', type: 'text' },
     ],
   },
   {
@@ -143,12 +149,28 @@ export const LISTS: ListDef[] = [
       { name: 'LastTestAt', type: 'text' },
       { name: 'Lat', type: 'number' },
       { name: 'Lng', type: 'number' },
+      { name: 'AssignedTo', type: 'text' },
+      { name: 'AssignedEmail', type: 'text' },
+      { name: 'AssignDue', type: 'text' },
     ],
   },
   {
     table: 'depots',
     displayName: 'QA Depots',
     columns: [...common, { name: 'Address', type: 'text' }, { name: 'Lat', type: 'number' }, { name: 'Lng', type: 'number' }, { name: 'Radius', type: 'number' }],
+  },
+  {
+    table: 'people',
+    displayName: 'QA People',
+    columns: [
+      ...common,
+      { name: 'Email', type: 'text', indexed: true },
+      { name: 'Role', type: 'text' },
+      { name: 'Phone', type: 'text' },
+      { name: 'Notify', type: 'note' },
+      { name: 'AllStates', type: 'boolean' },
+      { name: 'Active', type: 'boolean' },
+    ],
   },
 ]
 
@@ -250,6 +272,9 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         Lat: p.lat ?? null,
         Lng: p.lng ?? null,
         DrawingId: p.drawingId ?? '',
+        AssignedTo: p.assignedTo ?? '',
+        AssignedEmail: p.assignedEmail ?? '',
+        AssignDue: p.assignDue ?? '',
       })
       break
     }
@@ -265,6 +290,9 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         Lat: d.lat ?? null,
         Lng: d.lng ?? null,
         DrawingId: d.drawingId ?? '',
+        AssignedTo: d.assignedTo ?? '',
+        AssignedEmail: d.assignedEmail ?? '',
+        AssignDue: d.assignDue ?? '',
       })
       break
     }
@@ -306,7 +334,15 @@ export function prepare(table: SyncedTable, record: Record<string, unknown>, sta
         LastTestAt: p.lastTestAt ?? '',
         Lat: p.lat ?? null,
         Lng: p.lng ?? null,
+        AssignedTo: p.assignedTo ?? '',
+        AssignedEmail: p.assignedEmail ?? '',
+        AssignDue: p.assignDue ?? '',
       })
+      break
+    }
+    case 'people': {
+      const p = record as unknown as Person
+      Object.assign(fields, { Email: p.email, Role: p.role ?? '', Phone: p.phone ?? '', Notify: p.notify.join('; '), AllStates: Boolean(p.allStates), Active: p.active })
       break
     }
     case 'depots': {

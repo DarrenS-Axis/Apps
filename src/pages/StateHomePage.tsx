@@ -3,8 +3,67 @@ import { Link, useNavigate } from 'react-router-dom'
 import { createProject, db } from '../data/db'
 import { useActiveProjectId, useBusinessUnits, useLive, useSettings, useVisibleProjects } from '../data/store'
 import { Empty, Field, IconFolder, IconPlus, Sheet } from '../components/ui'
-import { relativeTime } from '../lib/format'
+import { formatDate, relativeTime } from '../lib/format'
 import { MODULE_LABEL, STATE_NAMES, type BusinessUnit, type ModuleKey, type Project } from '../data/types'
+
+/**
+ * Work allocated to the person using the app: penetrations, defects and
+ * plant with their name on them, soonest due first.
+ */
+function MyWork({ name }: { name: string }) {
+  const work = useLive(
+    async () => {
+      const me = name.trim().toLowerCase()
+      if (!me) return []
+      const mine = (a?: string) => a?.trim().toLowerCase() === me
+      const projects = new Map((await db.projects.toArray()).map((p) => [p.id, p]))
+      const rows: { key: string; to: string; title: string; sub: string; due?: string; at: number }[] = []
+      for (const p of await db.penetrations.toArray()) {
+        if (!mine(p.assignedTo) || p.status === 'reviewed_approved') continue
+        rows.push({ key: p.id, to: `/project/${p.projectId}/firedoc?open=${p.id}`, title: `Penetration ${p.number} · ${p.size} ${p.ref}`.trim(), sub: projects.get(p.projectId)?.name ?? '', due: p.assignDue, at: p.assignedAt ?? 0 })
+      }
+      for (const d of await db.defects.toArray()) {
+        if (!mine(d.assignedTo) || d.status === 'closed') continue
+        rows.push({ key: d.id, to: `/project/${d.projectId}/reviewdoc?open=${d.id}`, title: `Defect ${d.number} · ${d.service}`, sub: projects.get(d.projectId)?.name ?? '', due: d.assignDue, at: d.assignedAt ?? 0 })
+      }
+      for (const i of await db.plant.toArray()) {
+        if (!mine(i.assignedTo) || i.status === 'disposed') continue
+        rows.push({ key: i.id, to: `/plant/item/${encodeURIComponent(i.plantNo)}`, title: `${i.plantNo} · ${i.type}`, sub: i.location, due: i.assignDue, at: i.assignedAt ?? 0 })
+      }
+      return rows.sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || b.at - a.at)
+    },
+    [name],
+    [] as { key: string; to: string; title: string; sub: string; due?: string; at: number }[],
+  )
+  if (!work.length) return null
+  const today = new Date().toISOString().slice(0, 10)
+  return (
+    <>
+      <div className="section-title">
+        <h2 style={{ fontSize: 15 }}>Allocated to you</h2>
+        <span>{work.length}</span>
+      </div>
+      <div className="card card__body--flush">
+        {work.slice(0, 8).map((w) => (
+          <Link key={w.key} className="listitem" to={w.to}>
+            <span className="listitem__main">
+              <strong>{w.title}</strong>
+              <span>{w.sub}</span>
+              {w.due ? (
+                <span className="row" style={{ marginTop: 6, gap: 6 }}>
+                  <span className={`chip ${w.due < today ? 'chip--hold' : 'chip--warn'}`}>
+                    {w.due < today ? 'Overdue' : 'Due'} {formatDate(w.due)}
+                  </span>
+                </span>
+              ) : null}
+            </span>
+          </Link>
+        ))}
+        {work.length > 8 ? <p className="small muted" style={{ padding: '8px 14px', margin: 0 }}>and {work.length - 8} more</p> : null}
+      </div>
+    </>
+  )
+}
 
 /** Live module counts for one project row. */
 function ProjectRow({ project, onOpen }: { project: Project; onOpen: (id: string) => void }) {
@@ -77,6 +136,8 @@ export function StateHomePage() {
           QA report
         </Link>
       </div>
+
+      <MyWork name={settings.userName} />
 
       {visibleUnits.length === 0 ? (
         <Empty icon={<IconFolder />} title="No business units" hint="Add one in Settings → Business units." />

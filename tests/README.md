@@ -56,8 +56,18 @@ console or page error along the way.
   what was seen. The map pins every located item (checked against the store), a pin's
   list opens the item, and *Show on map* draws the drill's trail from the job and back.
   The yard's address lookup and the map tiles (OpenStreetMap) are answered by the test.
+- `smoke-people.mjs` — people and notifications, with the test standing in for the Power
+  Automate flow. People added by hand and by CSV (lower-cased emails, state column, rows
+  with no email skipped); *Send test* reaches one person. A penetration allocated to Joe
+  from the sheet's footer: his email fills from his profile, the event is addressed to him
+  with the due date, note and a link to the penetration, and *Save* closes the sheet. A
+  defect raised goes to the NSW people who asked for defects and not to Queensland or to
+  people who did not; allocating it to a new name saves them as a person. With no flow set,
+  allocating plant offers a pre-written `mailto:` and posts nothing; take back and
+  reallocate work. *Allocated to you* opens the item without counting it as a sighting,
+  and the event's link opens the penetration.
 - `smoke-sharepoint.mjs` — the Microsoft 365 path, against `mock-graph.mjs` (a stand-in for
-  the slice of Graph the sync layer uses): provision the ten lists, write records (a plant
+  the slice of Graph the sync layer uses): provision the eleven lists, write records (a plant
   item among them) on one device and push them, pull them onto a fresh NSW device, confirm
   a QLD device receives none of them and national QA receives all of them and reports on them.
 - `smoke-offline.mjs` — the claim the app rests on: the service worker activates, the app

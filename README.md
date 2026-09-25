@@ -159,6 +159,30 @@ The Plant tab holds the state's AXIMSRG-03 Plant & Equipment Register, live.
   plant number, status, last seen and GPS — which imports straight back.
 - A project's hub shows how much plant is on the job and links to it.
 
+### Saving, allocating and people
+
+Every record's sheet — penetration, defect, piece of plant — ends in a bar that stays in
+reach: **Save** (fields are written as you type; Save commits any open form, confirms and
+closes), **Allocate to worker** and **Delete** off to one side.
+
+- **People** (Settings → People & notifications): a profile per worker — name, **work
+  email**, mobile, role, state — added by hand or from a CSV (Name, Email, Role, Phone,
+  State). Each person ticks what they want to be emailed about: work allocated to them,
+  hold points needing release, ITPs and penetrations completed by site, penetrations
+  defected, defects raised or closed, plant gone missing. The role sets sensible
+  defaults. *Every state* is for national QA; *Send test* checks the email arrives.
+- **Allocate** picks a person (their work email fills in), a date wanted by and a note.
+  A new name with an email becomes a profile. The allocation is on the record, in list
+  rows (→ Joe Bloggs), searchable, in the item's history for plant, and on SharePoint.
+  *Reallocate* or *Take back* later.
+- **Notifications** go out through the Power Automate flow (`flows/README.md`, Flow 0):
+  each event names who to email — the worker it was allocated to plus everyone who asked
+  for that event in the state — and links straight to the record. With no flow set up,
+  allocating offers *Email Joe* instead: the phone's mail app opens with the message
+  written. Hold points reached and ITPs completed or accepted now raise events too.
+- **Allocated to you** on the home screen lists the user's own work, due dates first,
+  overdue in red.
+
 ### QA report
 
 The monthly report, live, for a business unit, a state or the nation: the Firedoc summary
@@ -174,7 +198,7 @@ identically with no signal. Set up once, from Settings → Microsoft 365:
 1. An Entra ID **single-page application** registration (no secret — PKCE) with delegated
    `User.Read`, `Sites.ReadWrite.All`, `Files.ReadWrite.All`. Tenant ID and client ID go
    into Settings.
-2. The SharePoint site URL. **Provision** creates the nine `QA …` lists and the
+2. The SharePoint site URL. **Provision** creates the ten `QA …` lists and the
    `QA Files` library, and adds any column an upgrade needs. Safe to run again.
 3. **Sync now**, or leave it: the app syncs on coming online, on returning to the tab and
    every five minutes.
@@ -206,7 +230,7 @@ Pages URL as a redirect URI on the Entra app registration.
 
 ## Tests
 
-Thirteen Playwright suites drive the production build in a real browser, including
+Fourteen Playwright suites drive the production build in a real browser, including
 `smoke-sharepoint.mjs`, which runs the whole SharePoint path against a mock Graph server:
 provision, push from one device, pull on a fresh one, the QLD silo and the national
 roll-up. See `tests/README.md`.
@@ -237,6 +261,7 @@ src/
                         penetrations, defects, photos, plant, depots, sync
     db.ts               Dexie store, migrations, outbox that feeds SharePoint
     plant.ts            plant numbering, sightings, yard / job placement, moves
+    people.ts           people profiles and who each notification goes to
     store.ts            live-query hooks, state-scoped
     libraries/          itpLibrary (43), fireProfiles (202), states
     templates/          Controldoc checklist content
@@ -254,6 +279,8 @@ src/
     plantPdf.ts         QR label sheets and the plant list PDF
     qr.ts               QR codes: links, drawing, decoding
   components/PlantMap   the plant map (Leaflet, loaded on demand)
+  components/RecordFooter  Save / Allocate / Delete bar on every record
+  components/PeopleAdmin   Settings → People & notifications
     reporting.ts        the monthly report computations
     pdf.ts              Controldoc ITP, ITP register and Reviewdoc QA report PDFs
   components/QrScanner  camera, label-photo and typed QR reading

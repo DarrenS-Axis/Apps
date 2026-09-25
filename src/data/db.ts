@@ -9,6 +9,7 @@ import type {
   ItpMaterial,
   OutboxEntry,
   Penetration,
+  Person,
   Photo,
   PlantItem,
   Project,
@@ -39,6 +40,7 @@ class QaDatabase extends Dexie {
   photos!: Table<Photo, string>
   plant!: Table<PlantItem, string>
   depots!: Table<Depot, string>
+  people!: Table<Person, string>
   settings!: Table<Settings, string>
   outbox!: Table<OutboxEntry, string>
   remoteIds!: Table<{ id: string; spId: string }, string>
@@ -104,6 +106,10 @@ class QaDatabase extends Dexie {
       depots: 'id, state',
       photos: 'id, itpId, penetrationId, defectId, plantId, itemNo, takenAt',
     })
+    // People: the profiles work is allocated to and notifications go to.
+    this.version(4).stores({
+      people: 'id, state, name, email',
+    })
   }
 }
 
@@ -117,7 +123,7 @@ export const now = (): number => Date.now()
 /* --------------------------------------------------------------- outbox */
 
 /** Tables that reach SharePoint. Settings and the outbox itself never leave the device. */
-export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots'] as const
+export const SYNCED_TABLES = ['businessUnits', 'projects', 'drawings', 'itps', 'penetrations', 'defects', 'photos', 'plant', 'depots', 'people'] as const
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
 
 /**
@@ -636,6 +642,7 @@ export interface Backup {
   /** Full backups only: the plant register belongs to the state, not a project. */
   plant?: PlantItem[]
   depots?: Depot[]
+  people?: Person[]
 }
 
 /**
@@ -657,6 +664,7 @@ export async function exportBackup(projectId?: string): Promise<Backup> {
   const defIds = new Set(defects.map((d) => d.id))
   const plant = projectId ? [] : await db.plant.toArray()
   const depots = projectId ? [] : await db.depots.toArray()
+  const people = projectId ? [] : await db.people.toArray()
   const plantIds = new Set(plant.map((p) => p.id))
   const photos = (await db.photos.toArray()).filter(
     (p) =>
@@ -676,7 +684,7 @@ export async function exportBackup(projectId?: string): Promise<Backup> {
     penetrations,
     defects,
     photos,
-    ...(projectId ? {} : { plant, depots }),
+    ...(projectId ? {} : { plant, depots, people }),
   }
 }
 
@@ -714,7 +722,7 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
   }))
   await db.transaction(
     'rw',
-    [db.businessUnits, db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.plant, db.depots],
+    [db.businessUnits, db.projects, db.drawings, db.itps, db.penetrations, db.defects, db.photos, db.plant, db.depots, db.people],
     async () => {
       await ensureBusinessUnits()
       if (b.businessUnits?.length) await db.businessUnits.bulkPut(b.businessUnits)
@@ -726,6 +734,7 @@ export async function importBackup(data: unknown): Promise<ImportResult> {
       await db.photos.bulkPut(b.photos ?? [])
       await db.plant.bulkPut(b.plant ?? [])
       await db.depots.bulkPut(b.depots ?? [])
+      await db.people.bulkPut(b.people ?? [])
     },
   )
   return {

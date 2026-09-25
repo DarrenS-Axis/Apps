@@ -14,7 +14,7 @@ import { PhotosPage } from './pages/PhotosPage'
 import { FiredocPage } from './pages/FiredocPage'
 import { ReviewdocPage } from './pages/ReviewdocPage'
 import { ReportsPage } from './pages/ReportsPage'
-import { PlantPage, PlantTagLink } from './pages/PlantPage'
+import { PlantItemLink, PlantPage, PlantTagLink } from './pages/PlantPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { isConfigured, startAutoSync } from './sync'
 import { warmQrDecoder } from './lib/qr'
@@ -174,6 +174,7 @@ function Shell() {
               <Route path="/project/:projectId/photos" element={<PhotosPage />} />
               <Route path="/plant" element={<PlantPage />} />
               <Route path="/plant/tag/:plantNo" element={<PlantTagLink />} />
+              <Route path="/plant/item/:plantNo" element={<PlantItemLink />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFound />} />

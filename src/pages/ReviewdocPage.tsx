@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { createDefect, db, deleteDefect, updateDefect } from '../data/db'
 import { useBusinessUnit, useDefect, useDefects, useDrawings, useLive, useProject, useRecordPhotos, useSettings } from '../data/store'
 import { PhotoCaptureButtons, PhotoGrid, PhotoViewer } from '../components/PhotoCapture'
 import { PlanViewer } from '../components/PlanViewer'
 import { LocationLine, PlanImporter, useDeviceLocation, type Geo } from '../components/Locate'
-import { ConfirmButton, Empty, Field, IconCheck, IconPdf, IconPin, IconPlus, IconTrash, Sheet, Toast, useToast } from '../components/ui'
+import { RecordFooter } from '../components/RecordFooter'
+import { Empty, Field, IconCheck, IconPdf, IconPin, IconPlus, Sheet, Toast, useToast } from '../components/ui'
 import { DEFECT_STATUS_LABEL, SERVICE_TYPES, type Defect, type DefectStatus, type Drawing, type Photo, type ServiceType } from '../data/types'
 import { downloadBlob, formatDateTime, slug } from '../lib/format'
 import { currentPosition } from '../lib/images'
@@ -30,7 +31,9 @@ export function ReviewdocPage() {
   const [toast, showToast] = useToast()
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<DefectStatus | ''>('open')
-  const [openId, setOpenId] = useState<string | null>(null)
+  // A link from a notification opens the record: …?open=<id>.
+  const [search] = useSearchParams()
+  const [openId, setOpenId] = useState<string | null>(() => search.get('open'))
   const [raising, setRaising] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [view, setView] = useState<'list' | 'plan'>('list')
@@ -40,7 +43,7 @@ export function ReviewdocPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return defects
-      .filter((d) => (!status || d.status === status) && (!q || [d.number, d.service, d.description, d.locationPath].join(' ').toLowerCase().includes(q)))
+      .filter((d) => (!status || d.status === status) && (!q || [d.number, d.service, d.description, d.locationPath, d.assignedTo].join(' ').toLowerCase().includes(q)))
       .sort((a, b) => b.raisedAt - a.raisedAt)
   }, [defects, query, status])
 
@@ -178,6 +181,7 @@ function DefectRow({ defect, drawings, onOpen }: { defect: Defect; drawings: Dra
           {defect.cost ? <span className="chip">{aud(defect.cost)}</span> : null}
           {defect.drawingId && defect.x !== undefined ? <span className="chip chip--surv">Pinned</span> : null}
           {defect.lat !== undefined ? <span className="chip chip--ok">GPS</span> : null}
+          {defect.assignedTo ? <span className="chip chip--accent">→ {defect.assignedTo}</span> : null}
         </span>
       </span>
       {photo ? <img src={photo.thumb} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6 }} /> : null}
@@ -211,7 +215,8 @@ function RaiseSheet({ projectId, onClose, onRaised }: { projectId: string; onClo
       description: description.trim(),
       cost: cost ? Number(cost) : undefined,
       raisedBy: settings.userName,
-      assignedTo: assignedTo || undefined,
+      assignedTo: assignedTo.trim() || undefined,
+      ...(assignedTo.trim() ? { assignedAt: Date.now(), assignedBy: settings.userName || undefined } : {}),
       lat: location.geo?.lat,
       lng: location.geo?.lng,
       accuracy: location.geo?.accuracy,
@@ -220,6 +225,7 @@ function RaiseSheet({ projectId, onClose, onRaised }: { projectId: string; onClo
     await raiseEvent({
       event: 'defect.raised',
       projectId,
+      link: `/project/${projectId}/reviewdoc?open=${d.id}`,
       record: { number: d.number, service, description: d.description, cost: d.cost, lat: d.lat, lng: d.lng, drawing: drawing?.number },
       summary: `Defect ${d.number} raised — ${service}: ${d.description}${d.cost ? ` (${aud(d.cost)})` : ''}`,
     })
@@ -327,6 +333,7 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
   const [choosingPlan, setChoosingPlan] = useState(false)
   const [importing, setImporting] = useState(false)
   const [locating, setLocating] = useState(false)
+  const project = useProject(defect?.projectId)
   if (!defect) return null
   const drawing = drawings.find((d) => d.id === defect.drawingId)
   const patch = (changes: Partial<Defect>) => updateDefect(defect.id, changes)
@@ -338,7 +345,7 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
     if (status === 'open') Object.assign(changes, { rectifiedAt: undefined, closedAt: undefined })
     await patch(changes)
     if (status === 'closed') {
-      await raiseEvent({ event: 'defect.closed', projectId: defect.projectId, record: { number: defect.number, service: defect.service }, summary: `Defect ${defect.number} closed` })
+      await raiseEvent({ event: 'defect.closed', projectId: defect.projectId, link: `/project/${defect.projectId}/reviewdoc?open=${defect.id}`, record: { number: defect.number, service: defect.service }, summary: `Defect ${defect.number} closed` })
     }
     onToast(`${defect.number}: ${DEFECT_STATUS_LABEL[status]}`)
   }
@@ -365,7 +372,43 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
   const geo: Geo | null = defect.lat !== undefined && defect.lng !== undefined ? { lat: defect.lat, lng: defect.lng, accuracy: defect.accuracy, locatedAt: defect.locatedAt ?? defect.raisedAt } : null
 
   return (
-    <Sheet title={`Defect ${defect.number}`} onClose={onClose}>
+    <Sheet
+      title={`Defect ${defect.number}`}
+      onClose={onClose}
+      footer={
+        <RecordFooter
+          label={defect.number}
+          describe={`Defect ${defect.number} — ${defect.service}: ${defect.description}${project ? ` (${project.name})` : ''}`}
+          link={`/project/${defect.projectId}/reviewdoc?open=${defect.id}`}
+          state={project?.state}
+          updatedAt={defect.updatedAt}
+          allocation={defect}
+          deleteLabel="Delete defect"
+          onDelete={async () => {
+            await deleteDefect(defect.id)
+            onToast(`Defect ${defect.number} deleted`)
+            onClose()
+          }}
+          onSave={() => {
+            onToast(`Defect ${defect.number} saved`)
+            onClose()
+          }}
+          onAllocate={async (a) => {
+            await patch(a ? { ...a, assignedAt: Date.now(), assignedBy: settings.userName || undefined } : { assignedTo: undefined, assignedEmail: undefined, assignedAt: undefined, assignedBy: undefined, assignNote: undefined, assignDue: undefined })
+            if (a) {
+              await raiseEvent({
+                event: 'defect.allocated',
+                projectId: defect.projectId,
+                link: `/project/${defect.projectId}/reviewdoc?open=${defect.id}`,
+                record: { number: defect.number, service: defect.service, description: defect.description, assignedTo: a.assignedTo, assignedEmail: a.assignedEmail, due: a.assignDue, note: a.assignNote },
+                summary: `Defect ${defect.number} (${defect.service}) allocated to ${a.assignedTo}${a.assignDue ? `, due ${a.assignDue}` : ''}`,
+              })
+            }
+            onToast(a ? `Defect ${defect.number} allocated to ${a.assignedTo}` : `Defect ${defect.number} taken back`)
+          }}
+        />
+      }
+    >
       <div className="stack">
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <span className={`chip ${STATUS_CLASS[defect.status]}`}>{DEFECT_STATUS_LABEL[defect.status]}</span>
@@ -461,14 +504,9 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
             <input type="number" inputMode="decimal" value={defect.cost ?? ''} onChange={(e) => void patch({ cost: e.target.value ? Number(e.target.value) : undefined })} />
           </Field>
         </div>
-        <div className="field-grid">
-          <Field label="Location note">
-            <input type="text" value={defect.locationPath ?? ''} onChange={(e) => void patch({ locationPath: e.target.value })} placeholder="Level 4, grid C7, above ceiling" />
-          </Field>
-          <Field label="Assigned to">
-            <input type="text" value={defect.assignedTo ?? ''} onChange={(e) => void patch({ assignedTo: e.target.value })} />
-          </Field>
-        </div>
+        <Field label="Location note">
+          <input type="text" value={defect.locationPath ?? ''} onChange={(e) => void patch({ locationPath: e.target.value })} placeholder="Level 4, grid C7, above ceiling" />
+        </Field>
         <div>
           <span className="field-label">Photos ({photos.length})</span>
           <PhotoCaptureButtons
@@ -516,22 +554,6 @@ function DefectSheet({ id, onClose, onToast }: { id: string; onClose: () => void
               </button>
             ) : null}
           </div>
-        </div>
-        <div className="row">
-          <span className="spacer" />
-          <ConfirmButton
-            label={
-              <>
-                <IconTrash />
-                Delete defect
-              </>
-            }
-            confirmLabel="Delete for good"
-            onConfirm={async () => {
-              await deleteDefect(defect.id)
-              onClose()
-            }}
-          />
         </div>
       </div>
       {viewing ? <PhotoViewer photo={viewing} onClose={() => setViewing(null)} onChanged={() => undefined} onDeleted={() => setViewing(null)} /> : null}
