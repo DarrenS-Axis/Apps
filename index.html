@@ -1,3 +1,17 @@
+<script src="/msal-browser.min.js"></script>
+<script>
+  const msalApp = new msal.PublicClientApplication({
+    auth: {
+      clientId: "7485bf02-3fbf-478b-a4d0-05ddcc3b1c1e",
+      authority: "https://login.microsoftonline.com/e52a9a87-78f1-4048-b915-d974ad3d98ac",
+      redirectUri: window.location.origin
+    },
+    cache: { cacheLocation: "localStorage" }
+  });
+  if (!msalApp.getAllAccounts().length) {
+    window.location.href = "/login.html";
+  }
+</script>
 <!doctype html>
 <html lang="en-AU">
   <head>
