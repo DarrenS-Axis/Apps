@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "test:mep": "node tests/mep-calc.mjs",
+    "mep:vendor": "mkdir -p public/mep/vendor && cp node_modules/pdfjs-dist/legacy/build/pdf.min.mjs node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs public/mep/vendor/",
     "smoke": "node tests/smoke-core.mjs && node tests/smoke-evidence.mjs && node tests/smoke-plan-import.mjs && node tests/smoke-regions.mjs && node tests/smoke-pin-photos.mjs && node tests/smoke-pinch.mjs && node tests/smoke-gesture-recovery.mjs && node tests/smoke-controldoc-locate.mjs && node tests/smoke-firedoc.mjs && node tests/smoke-reviewdoc.mjs && node tests/smoke-plant.mjs && node tests/smoke-roomdata.mjs && node tests/smoke-people.mjs && node tests/smoke-brand.mjs && node tests/smoke-sharepoint.mjs && node tests/smoke-live.mjs && node tests/smoke-offline.mjs"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.22",
+    "@types/node": "^22.20.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.1.0",

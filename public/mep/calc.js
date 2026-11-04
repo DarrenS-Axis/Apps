@@ -8,7 +8,7 @@
 // outlets back to the root, each link is sized for what it carries, and
 // pressures are then walked back out from the root to every outlet.
 
-import { MATERIALS, SYSTEMS } from './data.js'
+import { MATERIALS, SYSTEMS, GASES, AIR_RHO } from './data.js'
 
 const G = 9.81
 
@@ -84,14 +84,14 @@ export function linkLength(link, nodes, metresPerPx) {
 function isRoot(node, sysKey) {
   const kind = SYSTEMS[sysKey].kind
   if (node.system !== sysKey) return false
-  if (kind === 'water') return node.kind === 'source'
+  if (kind === 'water' || kind === 'gas') return node.kind === 'source'
   if (kind === 'drain') return node.kind === 'outlet'
   return node.kind === 'ahu'
 }
 
 /** The load one node puts on a system. */
 function nodeLoad(node, sysKey, fixtures, warnings) {
-  const load = { lu: 0, qSum: 0, qMax: 0, du: 0, duMax: 0, dnMin: 0, air: 0, outlets: 0 }
+  const load = { lu: 0, qSum: 0, qMax: 0, du: 0, duMax: 0, dnMin: 0, air: 0, mj: 0, mjMax: 0, outlets: 0 }
   const kind = SYSTEMS[sysKey].kind
   if (kind === 'air') {
     if (node.kind === 'terminal') {
@@ -107,7 +107,11 @@ function nodeLoad(node, sysKey, fixtures, warnings) {
     return load
   }
   load.outlets = 1
-  if (kind === 'water') {
+  if (kind === 'gas') {
+    if (!(+fx.mj > 0)) warnings.push({ level: 'warn', msg: `${fx.name} ${node.label || node.id} is on ${SYSTEMS[sysKey].name} but has no gas rating`, ref: node.id })
+    load.mj = +fx.mj || 0
+    load.mjMax = load.mj
+  } else if (kind === 'water') {
     if (sysKey === 'HW' && !fx.hot) {
       warnings.push({ level: 'warn', msg: `${fx.name} ${node.label || node.id} has no hot connection but is on heated water`, ref: node.id })
       return load
@@ -131,6 +135,8 @@ function addLoad(into, from) {
   into.duMax = Math.max(into.duMax, from.duMax)
   into.dnMin = Math.max(into.dnMin, from.dnMin)
   into.air += from.air
+  into.mj += from.mj
+  into.mjMax = Math.max(into.mjMax, from.mjMax)
   into.outlets += from.outlets
 }
 
@@ -147,6 +153,24 @@ export function drainFlow(load, ds) {
   if (load.du <= 0) return 0
   return Math.max(load.duMax, (+ds.K || 0.5) * Math.sqrt(load.du))
 }
+
+/** Fluid properties of a fuel gas, in the shape pipeFlow() takes. */
+export function gasProps(gasKey) {
+  const g = GASES[gasKey]
+  return { rho: g.rho, nu: g.mu / g.rho }
+}
+
+/**
+ * Design gas load (MJ/h): the connected load times the diversity, but never
+ * less than the largest single appliance.
+ */
+export function gasLoad(load, gs) {
+  if (load.mj <= 0) return 0
+  return Math.max(load.mjMax, (load.mj * (gs.diversity ?? 100)) / 100)
+}
+
+/** MJ/h to L/s of gas. */
+export const gasFlowLs = (mjh, gasKey) => ((mjh / GASES[gasKey].hv) * 1000) / 3600
 
 function pickSize(sizes, ok, locked, bump = 0) {
   if (locked) {
@@ -215,7 +239,7 @@ function solve(project, bumps) {
     }
     const roots = project.nodes.filter((n) => isRoot(n, sysKey) && adj.has(n.id))
     if (!roots.length) {
-      W.push({ level: 'error', msg: `${sys.name}: no ${sys.kind === 'water' ? 'source' : sys.kind === 'drain' ? 'drainage connection' : 'air handler'} connected` })
+      W.push({ level: 'error', msg: `${sys.name}: no ${sys.kind === 'water' || sys.kind === 'gas' ? 'source' : sys.kind === 'drain' ? 'drainage connection' : 'air handler'} connected` })
       continue
     }
 
@@ -280,6 +304,17 @@ function solve(project, bumps) {
           Object.assign(res, { lu: total.lu, q, dn: pick.size.dn, bore: pick.size.id, v: flow.v, paPerM: flow.paPerM, loss, locked: pick.locked, atMax: pick.atMax, upsized: bumps[l.id] || 0 })
           if (flow.v > vMax + 1e-9) W.push({ level: pick.locked ? 'warn' : 'error', msg: `${l.id}: ${flow.v.toFixed(2)} m/s exceeds ${vMax} m/s`, ref: l.id })
           res.label = `DN${res.dn} · ${q.toFixed(2)} L/s`
+        } else if (sys.kind === 'gas') {
+          const gs = settings.gas
+          const fluid = gasProps(sys.gas)
+          const mj = gasLoad(total, gs)
+          const q = gasFlowLs(mj, sys.gas)
+          const vMax = +gs.vMax || 10
+          const pick = pickSize(mat.sizes, (s) => pipeFlow(q, s.id, mat.roughness, fluid).v <= vMax, l.size, bumps[l.id])
+          const flow = pipeFlow(q, pick.size.id, mat.roughness, fluid)
+          const loss = (flow.paPerM * length * (1 + (+gs.fittingsPct || 0) / 100)) / 1000
+          Object.assign(res, { mj, mjConnected: total.mj, q, m3h: q * 3.6, dn: pick.size.dn, bore: pick.size.id, v: flow.v, paPerM: flow.paPerM, loss, locked: pick.locked, atMax: pick.atMax, upsized: bumps[l.id] || 0 })
+          res.label = `DN${res.dn} · ${mj.toFixed(0)} MJ/h`
         } else if (sys.kind === 'drain') {
           const q = drainFlow(total, settings.drain)
           const grade = l.grade != null && l.grade !== '' ? +l.grade : +settings.drain.grade
@@ -338,6 +373,33 @@ function solve(project, bumps) {
         }
         const top = subtree.get(root.id)
         Object.assign(rootSummary, { lu: top.lu, q: waterDemand(top, settings.water), critical })
+      } else if (sys.kind === 'gas') {
+        const gas = GASES[sys.gas]
+        const pMin = +settings.gas[sys.gas]?.pMin || 0
+        const p = new Map([[root.id, +root.pressure || 0]])
+        let critical = null
+        for (const nid of order) {
+          const n = nodes.get(nid)
+          const pl = parentLink.get(nid)
+          if (pl) {
+            const dz = (+n.z || 0) - (+nodes.get(pl.parent).z || 0)
+            // Lighter-than-air gas gains pressure as it rises; LPG loses it.
+            p.set(nid, p.get(pl.parent) - out.links[pl.link.id].loss + ((AIR_RHO - gas.rho) * G * dz) / 1000)
+          }
+          const res = { system: sysKey, pressure: p.get(nid) }
+          const fx = n.kind === 'fixture' && fixtures[n.fixture]
+          if (fx && +fx.mj > 0) {
+            res.required = pMin
+            res.margin = res.pressure - pMin
+            res.ok = res.margin >= -1e-9
+            if (!res.ok) W.push({ level: 'error', msg: `${sys.name}: ${fx.name} ${n.label || n.id} has ${res.pressure.toFixed(2)} kPa, needs ${pMin} kPa`, ref: nid })
+            if (!critical || res.margin < critical.margin) critical = { node: nid, margin: res.margin, pressure: res.pressure }
+          }
+          ;(out.nodes[nid] ||= {})[sysKey] = res
+        }
+        const top = subtree.get(root.id)
+        const mj = gasLoad(top, settings.gas)
+        Object.assign(rootSummary, { mj, mjConnected: top.mj, m3h: gasFlowLs(mj, sys.gas) * 3.6, critical })
       } else if (sys.kind === 'air') {
         const p = new Map([[root.id, 0]])
         let index = null

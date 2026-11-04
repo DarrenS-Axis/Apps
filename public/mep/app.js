@@ -5,9 +5,10 @@
 // for undo, re-solves the network and redraws. Networks here are small enough
 // (hundreds of elements) that a full redraw on every change is instant.
 
-import { FIXTURES, MATERIALS, SYSTEMS, DRAIN_K } from './data.js'
+import { FIXTURES, MATERIALS, SYSTEMS, DRAIN_K, GASES } from './data.js'
 import { calculate, linkLength } from './calc.js'
 import { newProject, demoProject } from './project.js'
+import { openPdf, closePdf, pageSize, renderPdfPage, metresPerPoint, paperName, putBlob, getBlob, pruneBlobs, blobToDataUrl, dataUrlToBlob, imageSize } from './underlay.js'
 
 const SVG = 'http://www.w3.org/2000/svg'
 const STORE_KEY = 'axis-mep-project'
@@ -16,9 +17,9 @@ const clone = (o) => JSON.parse(JSON.stringify(o))
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 const fmt = (n, d = 2) => (n == null || Number.isNaN(n) ? '–' : (+n).toFixed(d))
 
-const ROOT_KIND = { water: 'source', drain: 'outlet', air: 'ahu' }
-const ROOT_LABEL = { water: 'Source', drain: 'Drain connection', air: 'Air handler' }
-const KIND_NAME = { source: 'Water source', outlet: 'Drain connection', ahu: 'Air handler', fixture: 'Fixture', terminal: 'Air terminal', junction: 'Junction' }
+const ROOT_KIND = { water: 'source', gas: 'source', drain: 'outlet', air: 'ahu' }
+const ROOT_LABEL = { water: 'Source', gas: 'Gas meter / regulator', drain: 'Drain connection', air: 'Air handler' }
+const KIND_NAME = { source: 'Source', outlet: 'Drain connection', ahu: 'Air handler', fixture: 'Fixture', terminal: 'Air terminal', junction: 'Junction' }
 
 const state = {
   project: load() || newProject(),
@@ -52,7 +53,19 @@ function migrate(p) {
   return {
     ...base,
     ...p,
-    settings: { ...base.settings, ...p.settings, water: { ...base.settings.water, ...p.settings?.water }, drain: { ...base.settings.drain, ...p.settings?.drain }, air: { ...base.settings.air, ...p.settings?.air } },
+    settings: {
+      ...base.settings,
+      ...p.settings,
+      water: { ...base.settings.water, ...p.settings?.water },
+      drain: { ...base.settings.drain, ...p.settings?.drain },
+      air: { ...base.settings.air, ...p.settings?.air },
+      gas: {
+        ...base.settings.gas,
+        ...p.settings?.gas,
+        NG: { ...base.settings.gas.NG, ...p.settings?.gas?.NG },
+        LPG: { ...base.settings.gas.LPG, ...p.settings?.gas?.LPG },
+      },
+    },
     fixtures: { ...base.fixtures, ...p.fixtures },
   }
 }
@@ -61,7 +74,42 @@ function persist() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(state.project))
   } catch {
-    status('Autosave failed — the underlay may be too large for browser storage. Use Save to keep a copy.')
+    status('Autosave failed — browser storage is full. Use Save to keep a copy.')
+  }
+  storeUnderlay()
+}
+
+// Underlay pictures by reference: { blob, url }. Kept for the whole session so
+// undo can bring back an earlier plan; IndexedDB holds only the current one.
+const plans = new Map()
+let storedRef = null
+
+function storeUnderlay() {
+  const ref = P().underlay?.ref ?? null
+  if (ref === storedRef) return
+  storedRef = ref
+  if (ref && plans.has(ref)) putBlob(ref, plans.get(ref).blob)
+  pruneBlobs(ref ? [ref] : [])
+}
+
+function addPlan(blob) {
+  const ref = `plan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+  plans.set(ref, { blob, url: URL.createObjectURL(blob) })
+  return ref
+}
+
+/** Bring a project's underlay into the plan store (from a file or old autosave). */
+async function adoptUnderlay(p) {
+  const u = p.underlay
+  if (!u) return
+  const data = u.data || (u.href?.startsWith('data:') ? u.href : null)
+  if (data) {
+    u.ref = addPlan(await dataUrlToBlob(data))
+    delete u.data
+    delete u.href
+  } else if (u.ref && !plans.has(u.ref)) {
+    const blob = await getBlob(u.ref)
+    if (blob) plans.set(u.ref, { blob, url: URL.createObjectURL(blob) })
   }
 }
 
@@ -101,8 +149,9 @@ function refresh() {
 }
 
 function addNode(kind, x, y, extra = {}) {
-  const n = { id: nextId('N'), kind, x: Math.round(x), y: Math.round(y), z: 0, label: '', ...extra }
-  if (kind === 'source') Object.assign(n, { system: state.system, pressure: 350, label: n.label || (state.system === 'HW' ? 'Water heater' : 'Water meter') })
+  const n = { id: nextId('N'), kind, x, y, z: 0, label: '', ...extra }
+  if (kind === 'source' && sysKind() === 'gas') Object.assign(n, { system: state.system, pressure: P().settings.gas[SYSTEMS[state.system].gas]?.supply ?? 2.75, label: n.label || (state.system === 'LPG' ? 'LPG regulator' : 'Gas meter') })
+  else if (kind === 'source') Object.assign(n, { system: state.system, pressure: 350, label: n.label || (state.system === 'HW' ? 'Water heater' : 'Water meter') })
   if (kind === 'outlet') Object.assign(n, { system: state.system, label: n.label || 'Sewer connection' })
   if (kind === 'ahu') Object.assign(n, { system: state.system, label: n.label || 'AHU-1' })
   if (kind === 'fixture') n.fixture = n.fixture || state.fixtureType
@@ -181,7 +230,7 @@ function render() {
   renderResults()
   $('#projectName').value = P().name
   const m = P().settings.metresPerPx
-  status(`Scale 1 px = ${fmt(m, 3)} m · grid ${fmt(20 * m, 1)} m · zoom ${fmt(k * 100, 0)}%`)
+  status(`Scale 1 px = ${fmt(m, 4)} m${P().underlay?.ratio ? ` (1:${P().underlay.ratio})` : ""} · snap 0.1 m · zoom ${fmt(k * 100, 0)}%`)
 }
 
 function renderUnderlay() {
@@ -192,7 +241,9 @@ function renderUnderlay() {
     img.setAttribute('width', 0)
     return
   }
-  img.setAttribute('href', u.href)
+  const plan = plans.get(u.ref)
+  if (plan) img.setAttribute('href', plan.url)
+  else img.removeAttribute('href')
   img.setAttribute('x', u.x)
   img.setAttribute('y', u.y)
   img.setAttribute('width', u.w)
@@ -300,7 +351,22 @@ function toWorld(evt) {
   return { x: (evt.clientX - r.left - state.view.x) / state.view.k, y: (evt.clientY - r.top - state.view.y) / state.view.k }
 }
 
-const snap = (v) => Math.round(v / 10) * 10
+// Snap to 0.1 m on the real building, whatever the drawing scale.
+const snap = (v) => {
+  const step = Math.max(1, 0.1 / P().settings.metresPerPx)
+  return Math.round(Math.round(v / step) * step * 100) / 100
+}
+
+/** The node within a few screen pixels of a point, so near-misses still connect. */
+function nodeNear(pt) {
+  const r = 12 / state.view.k
+  let best = null
+  for (const n of P().nodes) {
+    const d = Math.hypot(n.x - pt.x, n.y - pt.y)
+    if (d <= r && (!best || d < best.d)) best = { id: n.id, d }
+  }
+  return best?.id
+}
 
 function placePoint(pt) {
   let p = { x: snap(pt.x), y: snap(pt.y) }
@@ -328,7 +394,7 @@ svg.addEventListener('pointerdown', (e) => {
   const pt = toWorld(e)
   const nodeEl = e.target.closest('[data-node]')
   const linkEl = e.target.closest('[data-link]')
-  const nodeId = nodeEl?.dataset.node
+  const nodeId = nodeEl?.dataset.node || (state.tool === 'link' ? nodeNear(pt) : undefined)
   const link = linkEl ? linkById(linkEl.dataset.link) : null
 
   if (e.button === 1 || (e.button === 0 && e.altKey)) {
@@ -517,16 +583,17 @@ function propsPanel() {
     h += field('Label', txt(`node.${n.id}.label`, n.label))
     h += field('Elevation (m)', num(`node.${n.id}.z`, n.z, 0.1))
     if (n.kind === 'source') {
-      h += field('System', sel(`node.${n.id}.system`, n.system, Object.entries(SYSTEMS).filter(([, v]) => v.kind === 'water').map(([k, v]) => [k, v.name])))
-      h += field('Pressure (kPa)', num(`node.${n.id}.pressure`, n.pressure, 5))
+      h += field('System', sel(`node.${n.id}.system`, n.system, Object.entries(SYSTEMS).filter(([, v]) => v.kind === 'water' || v.kind === 'gas').map(([k, v]) => [k, v.name])))
+      h += field('Pressure (kPa)', num(`node.${n.id}.pressure`, n.pressure, SYSTEMS[n.system]?.kind === 'gas' ? 0.05 : 5))
     }
     if (n.kind === 'fixture') h += field('Type', sel(`node.${n.id}.fixture`, n.fixture, Object.entries(P().fixtures).map(([k, v]) => [k, v.name])))
     if (n.kind === 'terminal') h += field('Airflow (L/s)', num(`node.${n.id}.airflow`, n.airflow, 5))
     const r = state.results?.nodes[n.id] || {}
     for (const [sysKey, res] of Object.entries(r)) {
       const rows = []
-      if (res.pressure != null) rows.push(['Pressure', `${fmt(res.pressure, 0)} kPa`])
-      if (res.required != null) rows.push(['Required', `${res.required} kPa`], ['Margin', `<span class="${res.ok ? 'ok' : 'err'}">${fmt(res.margin, 0)} kPa</span>`])
+      const d = SYSTEMS[sysKey].kind === 'gas' ? 2 : 0
+      if (res.pressure != null) rows.push(['Pressure', `${fmt(res.pressure, d)} kPa`])
+      if (res.required != null) rows.push(['Required', `${res.required} kPa`], ['Margin', `<span class="${res.ok ? 'ok' : 'err'}">${fmt(res.margin, d)} kPa</span>`])
       if (res.pathLoss != null) rows.push(['Path loss', `${fmt(res.pathLoss, 1)} Pa`])
       if (res.total != null) rows.push(['Incl. terminal', `${fmt(res.total, 1)} Pa`])
       if (rows.length) h += `<h4>${SYSTEMS[sysKey].name}</h4>${resultRows(rows)}`
@@ -537,7 +604,7 @@ function propsPanel() {
   if (!l) return projectHelp()
   const sys = SYSTEMS[l.system]
   const matKey = l.material || sys.material
-  const mats = Object.entries(MATERIALS).filter(([, m]) => m.kind === (sys.kind === 'water' ? 'pipe' : sys.kind === 'drain' ? 'drain' : 'duct'))
+  const mats = Object.entries(MATERIALS).filter(([, m]) => m.kind === (sys.kind === 'water' || sys.kind === 'gas' ? 'pipe' : sys.kind === 'drain' ? 'drain' : 'duct'))
   const auto = linkLength(l, new Map(P().nodes.map((n) => [n.id, n])), P().settings.metresPerPx)
   let h = `<h3>${sys.kind === 'air' ? 'Duct' : 'Pipe'} ${esc(l.id)}</h3>`
   h += field('System', sel(`link.${l.id}.system`, l.system, Object.entries(SYSTEMS).map(([k, v]) => [k, v.name])))
@@ -549,6 +616,7 @@ function propsPanel() {
   if (r) {
     const rows = [['Size', r.dn ? `${sys.kind === 'air' ? 'Ø' : 'DN'}${r.dn}${r.locked ? ' (locked)' : ''}` : '–'], ['Bore', `${fmt(r.bore, 1)} mm`], ['Length', `${fmt(r.length)} m`], ['Outlets served', r.outlets]]
     if (sys.kind === 'water') rows.push(['Loading units', fmt(r.lu, 0)], ['Design flow', `${fmt(r.q)} L/s`], ['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM, 0)} Pa/m`], ['Loss incl. fittings', `${fmt(r.loss)} kPa`], ['Upsized for pressure', r.upsized ? `+${r.upsized} size${r.upsized > 1 ? 's' : ''}` : 'no'])
+    if (sys.kind === 'gas') rows.push(['Connected load', `${fmt(r.mjConnected, 0)} MJ/h`], ['Design load', `${fmt(r.mj, 0)} MJ/h`], ['Gas flow', `${fmt(r.m3h, 2)} m³/h`], ['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM, 1)} Pa/m`], ['Loss incl. fittings', `${fmt(r.loss * 1000, 0)} Pa`], ['Upsized for pressure', r.upsized ? `+${r.upsized} size${r.upsized > 1 ? 's' : ''}` : 'no'])
     if (sys.kind === 'drain') rows.push(['Discharge units', fmt(r.du, 1)], ['Design flow', `${fmt(r.q)} L/s`], ['Capacity', `${fmt(r.cap)} L/s`], ['Utilisation', `${fmt(r.util * 100, 0)} %`], ['Velocity', `${fmt(r.v)} m/s`])
     if (sys.kind === 'air') rows.push(['Airflow', `${fmt(r.q, 0)} L/s`], ['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM)} Pa/m`], ['Rectangular', `${r.rect.w} × ${r.rect.h} mm`], ['Loss incl. fittings', `${fmt(r.loss, 1)} Pa`])
     h += `<h4>Result</h4>${resultRows(rows)}`
@@ -561,14 +629,24 @@ function propsPanel() {
 function projectHelp() {
   return `<h3>Getting started</h3>
   <ol class="note">
-    <li>Optional: <b>Underlay…</b> loads a floor plan image; <b>Set scale</b> calibrates it.</li>
+    <li>Optional: <b>Underlay…</b> loads a floor plan (PDF or image). Give a PDF its drawing scale, or use <b>Set scale</b>.</li>
     <li>Pick a <b>System</b>, place its <b>Source</b> (water meter / heater, sewer connection or AHU).</li>
     <li>Place <b>Fixtures</b> or <b>Air terminals</b>.</li>
     <li>Draw runs with <b>Pipe / duct</b>. Click on an existing pipe to tee into it.</li>
     <li>Sizes, pressures and the bill of materials update as you draw.</li>
   </ol>
   <p class="note">Or press <b>Demo</b> to load a worked example. Work autosaves in this browser; use <b>Save</b> to keep a file.</p>
-  <p class="note">Results are indicative. Check the design criteria and fixture library against the standard for your project before issuing.</p>`
+  <p class="note">Results are indicative. Check the design criteria and fixture library against the standard for your project before issuing.</p>${underlayPanel()}`
+}
+
+function underlayPanel() {
+  const u = P().underlay
+  if (!u) return ''
+  return `<h4>Underlay</h4>
+  <p class="note">${esc(u.name || 'Image')}${u.page ? ` · page ${u.page}` : ''}${u.paper ? ` · ${esc(u.paper)}` : ''}${u.ratio ? ` · 1:${u.ratio}` : ''}</p>
+  ${field('Offset x (px)', num('underlay.x', u.x, 10))}
+  ${field('Offset y (px)', num('underlay.y', u.y, 10))}
+  <p><button data-cmd="removeUnderlay">Remove underlay</button></p>`
 }
 
 function settingsPanel() {
@@ -591,6 +669,15 @@ function settingsPanel() {
   ${field('Fittings allowance (%)', num('settings.air.fittingsPct', s.air.fittingsPct, 5))}
   ${field('Terminal loss (Pa)', num('settings.air.terminalPa', s.air.terminalPa, 5))}
   ${field('Max rect. depth (mm)', num('settings.air.rectDepth', s.air.rectDepth, 50))}
+  <h4>Gas</h4>
+  ${field('Diversity (% of connected)', num('settings.gas.diversity', s.gas.diversity, 5))}
+  ${field('Fittings allowance (%)', num('settings.gas.fittingsPct', s.gas.fittingsPct, 5))}
+  ${field('Starting max velocity (m/s)', num('settings.gas.vMax', s.gas.vMax, 1))}
+  ${field('NG meter pressure (kPa)', num('settings.gas.NG.supply', s.gas.NG.supply, 0.05))}
+  ${field('NG appliance min (kPa)', num('settings.gas.NG.pMin', s.gas.NG.pMin, 0.05))}
+  ${field('LPG regulator (kPa)', num('settings.gas.LPG.supply', s.gas.LPG.supply, 0.05))}
+  ${field('LPG appliance min (kPa)', num('settings.gas.LPG.pMin', s.gas.LPG.pMin, 0.05))}
+  <p class="note">Gas: design load = max(largest appliance, diversity × connected MJ/h), converted at ${GASES.NG.hv} MJ/m³ (NG) and ${GASES.LPG.hv} MJ/m³ (LPG). Pipes start at the velocity limit and are upsized until every appliance has its minimum inlet pressure. Meter pressure applies to new meters; edit an existing one on the meter itself.</p>
   <p class="note">Probable demand: Q = max(largest outlet, k·√ΣLU), never more than the sum of outlet flows. Drainage: Qww = K·√ΣDU (EN 12056-2), sized by Colebrook–White part full. Pipe and duct friction by Darcy–Weisbach.</p>`
 }
 
@@ -602,17 +689,18 @@ function libraryPanel() {
     <td><input type="number" step="5" data-path="fx.${k}.pmin" value="${f.pmin}" /></td>
     <td><input type="checkbox" data-path="fx.${k}.hot" ${f.hot ? 'checked' : ''} /></td>
     <td><input type="number" step="0.1" data-path="fx.${k}.du" value="${f.du}" /></td>
-    <td><input type="number" step="5" data-path="fx.${k}.dnMin" value="${f.dnMin}" /></td></tr>`).join('')
+    <td><input type="number" step="5" data-path="fx.${k}.dnMin" value="${f.dnMin}" /></td>
+    <td><input type="number" step="1" data-path="fx.${k}.mj" value="${f.mj ?? 0}" /></td></tr>`).join('')
   return `<h3>Fixture library (this project)</h3>
-  <div class="table lib"><table><thead><tr><th>Name</th><th>LU</th><th>L/s</th><th>kPa</th><th>Hot</th><th>DU</th><th>DN min</th></tr></thead><tbody>${rows}</tbody></table></div>
+  <div class="table lib"><table><thead><tr><th>Name</th><th>LU</th><th>L/s</th><th>kPa</th><th>Hot</th><th>DU</th><th>DN min</th><th>MJ/h</th></tr></thead><tbody>${rows}</tbody></table></div>
   <p><button data-cmd="addFixture">Add fixture type</button></p>
-  <p class="note">LU loading units · L/s design flow of one outlet · kPa minimum working pressure · DU discharge unit (L/s) · DN min smallest drain it may discharge to. Defaults are typical values — check them against your standard.</p>`
+  <p class="note">LU loading units · L/s design flow of one outlet · kPa minimum working pressure · DU discharge unit (L/s) · DN min smallest drain it may discharge to · MJ/h gas input. Defaults are typical values — check them against your standard.</p>`
 }
 
 $('#sidePanel').addEventListener('change', (e) => {
   const path = e.target.dataset.path
   if (!path) return
-  const [scope, id, key] = path.split('.')
+  const [scope, id, key, sub] = path.split('.')
   let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
   const numeric = e.target.type === 'number' || (e.target.tagName === 'SELECT' && (key === 'K' || key === 'size'))
   if (numeric) value = value === '' ? undefined : +value
@@ -625,8 +713,11 @@ $('#sidePanel').addEventListener('change', (e) => {
     if (key === 'system') l.material = undefined
   } else if (scope === 'fx') P().fixtures[id][key] = value
   else if (scope === 'settings') {
-    if (key) P().settings[id][key] = value
+    if (sub) P().settings[id][key][sub] = value
+    else if (key) P().settings[id][key] = value
     else P().settings[id] = value
+  } else if (scope === 'underlay' && P().underlay) {
+    P().underlay[id] = value ?? 0
   }
   refresh()
 })
@@ -645,10 +736,12 @@ export function linkRows(results) {
     return {
       id: r.id, system: SYSTEMS[r.system].name, material: r.material,
       size: `${kind === 'air' ? 'Ø' : 'DN'}${r.dn}${kind === 'air' ? ` / ${r.rect.w}×${r.rect.h}` : ''}${r.locked ? ' (locked)' : ''}`,
-      length: fmt(r.length), load: kind === 'water' ? `${fmt(r.lu, 0)} LU` : kind === 'drain' ? `${fmt(r.du, 1)} DU` : '',
-      flow: kind === 'air' ? fmt(r.q, 0) : fmt(r.q), velocity: fmt(r.v),
-      friction: kind === 'water' ? `${fmt(r.paPerM, 0)} Pa/m` : kind === 'air' ? `${fmt(r.paPerM)} Pa/m` : `${fmt(r.grade)} % grade`,
-      loss: kind === 'water' ? `${fmt(r.loss)} kPa` : kind === 'air' ? `${fmt(r.loss, 1)} Pa` : `${fmt(r.util * 100, 0)} % full`,
+      length: fmt(r.length),
+      load: { water: `${fmt(r.lu, 0)} LU`, drain: `${fmt(r.du, 1)} DU`, gas: `${fmt(r.mj, 0)} MJ/h`, air: '' }[kind],
+      flow: { water: `${fmt(r.q)} L/s`, drain: `${fmt(r.q)} L/s`, gas: `${fmt(r.m3h)} m³/h`, air: `${fmt(r.q, 0)} L/s` }[kind],
+      velocity: fmt(r.v),
+      friction: { water: `${fmt(r.paPerM, 0)} Pa/m`, gas: `${fmt(r.paPerM, 1)} Pa/m`, air: `${fmt(r.paPerM)} Pa/m`, drain: `${fmt(r.grade)} % grade` }[kind],
+      loss: { water: `${fmt(r.loss)} kPa`, gas: `${fmt(r.loss * 1000, 0)} Pa`, air: `${fmt(r.loss, 1)} Pa`, drain: `${fmt(r.util * 100, 0)} % full` }[kind],
     }
   })
 }
@@ -663,7 +756,7 @@ function outletRows(results) {
       const name = n.kind === 'fixture' ? P().fixtures[n.fixture]?.name : 'Air terminal'
       out.push({
         id: n.id, label: n.label || '', name, system: SYSTEMS[sysKey].name,
-        value: res.pressure != null ? `${fmt(res.pressure, 0)} kPa` : `${fmt(res.total, 1)} Pa`,
+        value: res.pressure != null ? `${fmt(res.pressure, SYSTEMS[sysKey].kind === 'gas' ? 2 : 0)} kPa` : `${fmt(res.total, 1)} Pa`,
         required: res.required != null ? `${res.required} kPa` : '',
         status: res.ok == null ? '' : res.ok ? '<span class="ok">OK</span>' : '<span class="err">LOW</span>',
       })
@@ -679,8 +772,9 @@ function nodeName(id) {
 }
 
 /** Frame the drawing in the window. */
-function fitView() {
-  const pts = P().nodes
+function fitView(toUnderlay = false) {
+  const u = P().underlay
+  const pts = toUnderlay || !P().nodes.length ? (u ? [{ x: u.x, y: u.y }, { x: u.x + u.w, y: u.y + u.h }] : []) : P().nodes
   if (!pts.length) return
   const r = svg.getBoundingClientRect()
   const xs = pts.map((n) => n.x)
@@ -699,6 +793,9 @@ function summaryHtml(results) {
       if (sys.kind === 'water') {
         const c = r.critical
         body = `${fmt(r.lu, 0)} LU · ${fmt(r.q)} L/s design flow${c ? ` · critical outlet ${esc(nodeName(c.node))} at ${fmt(c.pressure, 0)} kPa (<span class="${c.margin >= 0 ? 'ok' : 'err'}">${c.margin >= 0 ? '+' : ''}${fmt(c.margin, 0)} kPa</span>)` : ''}`
+      } else if (sys.kind === 'gas') {
+        const c = r.critical
+        body = `${fmt(r.mjConnected, 0)} MJ/h connected · ${fmt(r.mj, 0)} MJ/h design · ${fmt(r.m3h)} m³/h${c ? ` · critical appliance ${esc(nodeName(c.node))} at ${fmt(c.pressure, 2)} kPa (<span class="${c.margin >= 0 ? 'ok' : 'err'}">${c.margin >= 0 ? '+' : ''}${fmt(c.margin * 1000, 0)} Pa</span>)` : ''}`
       } else if (sys.kind === 'drain') body = `${fmt(r.du, 1)} DU · ${fmt(r.q)} L/s at the connection`
       else body = `${fmt(r.q, 0)} L/s · fan external static ≥ ${fmt(r.esp, 0)} Pa (index terminal ${esc(r.index ? nodeName(r.index.node) : '–')})`
       return `<p><b style="color:${sys.color}">${sys.name}</b> — ${esc(r.label)}: ${body}</p>`
@@ -720,7 +817,7 @@ function renderResults() {
   if (state.res === 'summary') panel.innerHTML = summaryHtml(r)
   else if (state.res === 'links') {
     const rows = linkRows(r)
-    panel.innerHTML = table(['Ref', 'System', 'Material', 'Size', 'Length m', 'Load', 'Flow L/s', 'Vel m/s', 'Friction / grade', 'Loss / fill'], rows.map((x) => [x.id, x.system, x.material, x.size, x.length, x.load, x.flow, x.velocity, x.friction, x.loss]), rows.map((x) => `link:${x.id}`))
+    panel.innerHTML = table(['Ref', 'System', 'Material', 'Size', 'Length m', 'Load', 'Flow', 'Vel m/s', 'Friction / grade', 'Loss / fill'], rows.map((x) => [x.id, x.system, x.material, x.size, x.length, x.load, x.flow, x.velocity, x.friction, x.loss]), rows.map((x) => `link:${x.id}`))
   } else if (state.res === 'outlets') {
     const rows = outletRows(r)
     panel.innerHTML = table(['Ref', 'Label', 'Type', 'System', 'Pressure / path loss', 'Required', 'Status'], rows.map((x) => [x.id, esc(x.label), esc(x.name), x.system, x.value, x.required, x.status]), rows.map((x) => `node:${x.id}`))
@@ -753,7 +850,7 @@ $('#resultsPanel').addEventListener('click', (e) => {
 
 function exportCsv() {
   const rows = linkRows(state.results)
-  const head = ['Ref', 'System', 'Material', 'Size', 'Length (m)', 'Load', 'Flow (L/s)', 'Velocity (m/s)', 'Friction / grade', 'Loss / fill']
+  const head = ['Ref', 'System', 'Material', 'Size', 'Length (m)', 'Load', 'Flow', 'Velocity (m/s)', 'Friction / grade', 'Loss / fill']
   const q = (v) => `"${String(v).replace(/"/g, '""')}"`
   const csv = [head, ...rows.map((x) => [x.id, x.system, x.material, x.size, x.length, x.load, x.flow, x.velocity, x.friction, x.loss])].map((r) => r.map(q).join(',')).join('\r\n')
   download(`${fileSafe(P().name)}-schedule.csv`, csv, 'text/csv')
@@ -785,7 +882,7 @@ async function report() {
   <p>Water: ${s.water.method === 'sqrt' ? `probable demand Q = max(largest outlet, ${s.water.kLU}·√ΣLU)` : 'sum of outlet flows'}; max velocity ${s.water.vMax} m/s; fittings +${s.water.fittingsPct}%.<br>
   Drainage: Qww = ${s.drain.K}·√ΣDU; default grade ${s.drain.grade}%; design filling h/d ${s.drain.fill}.<br>
   Supply air: ${s.air.friction} Pa/m friction, max ${s.air.vMax} m/s; fittings +${s.air.fittingsPct}%; terminal ${s.air.terminalPa} Pa.</p>
-  <h2>Pipe & duct schedule</h2>${table(['Ref', 'System', 'Material', 'Size', 'Length m', 'Load', 'Flow L/s', 'Vel m/s', 'Friction / grade', 'Loss / fill'], links.map((x) => [x.id, x.system, x.material, x.size, x.length, x.load, x.flow, x.velocity, x.friction, x.loss]))}
+  <h2>Pipe & duct schedule</h2>${table(['Ref', 'System', 'Material', 'Size', 'Length m', 'Load', 'Flow', 'Vel m/s', 'Friction / grade', 'Loss / fill'], links.map((x) => [x.id, x.system, x.material, x.size, x.length, x.load, x.flow, x.velocity, x.friction, x.loss]))}
   <h2>Outlets</h2>${table(['Ref', 'Label', 'Type', 'System', 'Pressure / path loss', 'Required', 'Status'], outlets.map((x) => [x.id, esc(x.label), esc(x.name), x.system, x.value, x.required, x.status]))}
   <h2>Bill of materials</h2>${table(['System', 'Material', 'Size', 'Length m', 'Runs'], r.bom.map((b) => [SYSTEMS[b.system].name, b.material, `${SYSTEMS[b.system].kind === 'air' ? 'Ø' : 'DN'}${b.dn}`, fmt(b.length), b.count]))}
   <h2>Warnings</h2>${r.warnings.length ? table(['Level', 'Message'], r.warnings.map((w) => [w.level, esc(w.msg)])) : '<p>None.</p>'}
@@ -795,20 +892,58 @@ async function report() {
   window.open(url, '_blank')
 }
 
-function loadUnderlay(file) {
-  const reader = new FileReader()
-  reader.onload = () => {
-    const img = new Image()
-    img.onload = () => {
-      snapshot()
-      P().underlay = { href: reader.result, x: 0, y: 0, w: img.naturalWidth, h: img.naturalHeight }
-      refresh()
-      setTool('scale')
-      status('Underlay loaded — click two points a known distance apart to set the scale.')
-    }
-    img.src = reader.result
+async function loadUnderlay(file) {
+  try {
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return await loadPdfUnderlay(file)
+    const { w, h } = await imageSize(file)
+    snapshot()
+    P().underlay = { ref: addPlan(file), name: file.name, x: 0, y: 0, w, h }
+    refresh()
+    fitView()
+    render()
+    setTool('scale')
+    status('Underlay loaded — click two points a known distance apart to set the scale.')
+  } catch (err) {
+    alert(`Could not load that underlay: ${err.message}`)
   }
-  reader.readAsDataURL(file)
+}
+
+/** Ask which page and what scale, then render the page as the underlay. */
+async function loadPdfUnderlay(file) {
+  status('Reading PDF…')
+  const doc = await openPdf(file)
+  const dlg = $('#pdfDialog')
+  const pageSel = $('#pdfPage')
+  pageSel.innerHTML = Array.from({ length: doc.numPages }, (_, i) => `<option value="${i + 1}">${i + 1}</option>`).join('')
+  const showPaper = async () => {
+    const { widthPt, heightPt } = await pageSize(doc, +pageSel.value)
+    $('#pdfPaper').textContent = `${doc.numPages} page${doc.numPages === 1 ? '' : 's'} · this sheet ${paperName(widthPt, heightPt)}`
+  }
+  pageSel.onchange = showPaper
+  await showPaper()
+  $('#pdfName').textContent = file.name
+  dlg.returnValue = ''
+  dlg.showModal()
+  await new Promise((resolve) => dlg.addEventListener('close', resolve, { once: true }))
+  if (dlg.returnValue !== 'ok') { status(''); closePdf(doc); return }
+  const pageNo = +pageSel.value
+  const ratio = parseFloat($('#pdfScale').value) || null
+  status(`Rendering page ${pageNo}…`)
+  const { blob, widthPt, heightPt } = await renderPdfPage(doc, pageNo)
+  closePdf(doc)
+  snapshot()
+  // One world unit = one PDF point, so a known drawing scale fixes the
+  // project scale exactly from the paper size.
+  P().underlay = { ref: addPlan(blob), name: file.name, page: pageNo, paper: paperName(widthPt, heightPt), ratio, x: 0, y: 0, w: widthPt, h: heightPt }
+  if (ratio) P().settings.metresPerPx = metresPerPoint(ratio)
+  refresh()
+  fitView(true)
+  render()
+  if (ratio) status(`Page ${pageNo} placed at 1:${ratio}. Check a known dimension with the scale shown here before drawing.`)
+  else {
+    setTool('scale')
+    status('Page placed — click two points a known distance apart to set the scale.')
+  }
 }
 
 const commands = {
@@ -829,7 +964,18 @@ const commands = {
     render()
   },
   open: () => $('#openFile').click(),
-  save: () => download(`${fileSafe(P().name)}.mep.json`, JSON.stringify(P(), null, 1), 'application/json'),
+  async save() {
+    // The saved file carries its underlay so it opens anywhere.
+    const p = clone(P())
+    const plan = p.underlay && plans.get(p.underlay.ref)
+    if (plan) p.underlay.data = await blobToDataUrl(plan.blob)
+    download(`${fileSafe(P().name)}.mep.json`, JSON.stringify(p), 'application/json')
+  },
+  removeUnderlay() {
+    snapshot()
+    P().underlay = null
+    refresh()
+  },
   underlay: () => $('#underlayFile').click(),
   csv: exportCsv,
   fit() { fitView(); render() },
@@ -840,7 +986,7 @@ const commands = {
     if (!name) return
     snapshot()
     const key = `custom_${++P().seq}`
-    P().fixtures[key] = { name, lu: 1, q: 0.1, pmin: 50, hot: false, du: 0.5, dnMin: 40 }
+    P().fixtures[key] = { name, lu: 1, q: 0.1, pmin: 50, hot: false, du: 0.5, dnMin: 40, mj: 0 }
     refresh()
   },
 }
@@ -862,6 +1008,7 @@ $('#openFile').addEventListener('change', async (e) => {
   if (!f) return
   try {
     const p = migrate(JSON.parse(await f.text()))
+    await adoptUnderlay(p)
     snapshot()
     state.project = p
     state.selection = null
@@ -899,5 +1046,7 @@ function fillPickers() {
 fillPickers()
 setTool('select')
 refresh()
+// The plan picture comes back from IndexedDB after the first paint.
+adoptUnderlay(P()).then(() => { storedRef = P().underlay?.ref ?? null; persist(); renderUnderlay() })
 // Exposed for tests and the console.
 window.mep = { state, commands, calculate }

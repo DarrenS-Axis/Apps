@@ -7,7 +7,7 @@ export function newProject(name = 'Untitled project') {
   return { version: 1, name, seq: 0, settings: clone(DEFAULT_SETTINGS), fixtures: clone(FIXTURES), nodes: [], links: [], underlay: null }
 }
 
-/** A two-bedroom apartment: cold, heated water, drainage and supply air. */
+/** A two-bedroom apartment: cold and heated water, drainage, natural gas and supply air. */
 export function demoProject() {
   const p = newProject('Demo — 2 bed apartment')
   let seq = 0
@@ -55,6 +55,12 @@ export function demoProject() {
   const t1 = N('terminal', 1080, 220, { airflow: 120, label: 'Bed 1' }); const t2 = N('terminal', 860, 220, { airflow: 90, label: 'Bed 2' })
   const t3 = N('terminal', 1080, 400, { airflow: 180, label: 'Living' }); const t4 = N('terminal', 960, 540, { airflow: 110, label: 'Kitchen' })
   L(ahu, a1, 'SA'); L(a1, t1, 'SA'); L(a1, t2, 'SA'); L(a1, a2, 'SA'); L(a2, t3, 'SA'); L(a2, t4, 'SA')
+  // natural gas: continuous-flow water heater beside the HW source, cooktop in the kitchen
+  const gm = N('source', 40, 700, { system: 'NG', pressure: 2.75, label: 'Gas meter' })
+  const hws = N('fixture', 360, 480, { fixture: 'hwsInst', label: 'Gas HWS' })
+  const cook = N('fixture', 630, 240, { fixture: 'cooktop' })
+  const g1 = N('junction', 360, 700); const g2 = N('junction', 800, 700); const g3 = N('junction', 800, 240)
+  L(gm, g1, 'NG'); L(g1, hws, 'NG'); L(g1, g2, 'NG'); L(g2, g3, 'NG'); L(g3, cook, 'NG')
   p.seq = seq
   return p
 }

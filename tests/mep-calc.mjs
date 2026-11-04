@@ -1,7 +1,7 @@
 // Unit checks for the MEP design calculation engine (public/mep/calc.js).
 // Run: node tests/mep-calc.mjs
 import assert from 'node:assert/strict'
-import { calculate, pipeFlow, drainCapacity, waterProps, AIR, waterDemand, drainFlow, equivalentDiameter } from '../public/mep/calc.js'
+import { calculate, pipeFlow, drainCapacity, waterProps, AIR, waterDemand, drainFlow, equivalentDiameter, gasProps, gasFlowLs, gasLoad } from '../public/mep/calc.js'
 import { demoProject, newProject } from '../public/mep/project.js'
 
 let passed = 0
@@ -92,6 +92,65 @@ test('loops and orphan runs are reported', () => {
   const msgs = calculate(p).warnings.map((w) => w.msg).join('\n')
   assert.match(msgs, /closes a loop/)
   assert.match(msgs, /L4 is not connected/)
+})
+
+// ---------- gas ----------
+
+test('gas flow: 38.7 MJ/h of natural gas is 1 m³/h', () => {
+  near(gasFlowLs(38.7, 'NG') * 3.6, 1, 1e-9, 'NG')
+  near(gasFlowLs(95, 'LPG') * 3.6, 1, 1e-9, 'LPG')
+})
+
+test('199 MJ/h NG in DN20 copper ≈ 6.3 m/s, ≈ 28 Pa/m', () => {
+  const f = pipeFlow(gasFlowLs(199, 'NG'), 17.01, 0.0015, gasProps('NG'))
+  near(f.v, 6.28, 0.05, 'velocity')
+  near(f.paPerM, 28, 3, 'friction')
+})
+
+test('gas diversity never drops below the largest appliance', () => {
+  assert.equal(gasLoad({ mj: 233, mjMax: 199 }, { diversity: 50 }), 199)
+  assert.equal(gasLoad({ mj: 400, mjMax: 100 }, { diversity: 70 }), 280)
+  assert.equal(gasLoad({ mj: 233, mjMax: 199 }, { diversity: 100 }), 233)
+})
+
+function gasRun(system, { pressure = 2.75, z = 0, length = 10, mj = 'hwsInst' } = {}) {
+  const p = newProject()
+  p.nodes = [
+    { id: 'M', kind: 'source', system, pressure, x: 0, y: 0, z: 0 },
+    { id: 'A', kind: 'fixture', fixture: mj, x: 0, y: 0, z },
+  ]
+  p.links = [{ id: 'L1', a: 'M', b: 'A', system, length }]
+  return { p, r: calculate(p) }
+}
+
+test('gas pipe is upsized until the appliance has its minimum pressure', () => {
+  const { r } = gasRun('NG')
+  const l = r.links.L1
+  assert.ok(l.dn >= 25, `DN${l.dn}`)
+  assert.ok(l.upsized > 0, 'upsized for pressure')
+  assert.ok(r.nodes.A.NG.ok, 'appliance in pressure')
+  assert.ok(r.nodes.A.NG.pressure >= 2.5 - 1e-9)
+})
+
+test('stack effect: NG gains and LPG loses pressure going up', () => {
+  const ng = gasRun('NG', { z: 10, length: 0.001, mj: 'cooktop' }).r.nodes.A.NG.pressure
+  const lpg = gasRun('LPG', { z: 10, length: 0.001, mj: 'cooktop' }).r.nodes.A.LPG.pressure
+  near(ng - 2.75, ((1.2 - 0.73) * 9.81 * 10) / 1000, 0.002, 'NG rise')
+  near(lpg - 2.75, ((1.2 - 1.87) * 9.81 * 10) / 1000, 0.002, 'LPG rise')
+})
+
+test('a supply below the appliance minimum is reported, not hidden', () => {
+  const { r } = gasRun('NG', { pressure: 2.0 })
+  assert.equal(r.nodes.A.NG.ok, false)
+  assert.ok(r.warnings.some((w) => w.level === 'error' && /needs 2.5 kPa/.test(w.msg)))
+})
+
+test('demo gas service solves with every appliance in pressure', () => {
+  const r = calculate(demoProject())
+  const s = r.summary.NG.roots[0]
+  assert.equal(s.mjConnected, 199 + 34)
+  assert.ok(s.critical.margin >= 0)
+  for (const l of Object.values(r.links).filter((x) => x.system === 'NG')) assert.ok(l.dn >= 15)
 })
 
 console.log(`mep-calc: ${passed} passed`)

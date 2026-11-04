@@ -61,9 +61,14 @@ input[type=range] { padding: 0; }
 .node.selected .shape { stroke: var(--sel); stroke-width: 3; }
 .node text, .lbl { font-size: 10px; fill: var(--ink); paint-order: stroke; stroke: var(--canvas); stroke-width: 3px; pointer-events: none; }
 .node .fail { fill: var(--err) !important; }
+#ghostLayer, #underlay { pointer-events: none; }
 .ghost { stroke: var(--sel); stroke-width: 2; stroke-dasharray: 4 4; fill: none; }
 @media (max-width: 900px) {
   body { grid-template-rows: auto 1fr 200px; }
   .layout { grid-template-columns: 120px 1fr; }
   .side { display: none; }
 }
+dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); width: min(420px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / .35); }
+dialog h3 { margin: 0 0 8px; }
+.actions { text-align: right; margin: 12px 0 0; }

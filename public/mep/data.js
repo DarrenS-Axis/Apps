@@ -60,13 +60,28 @@ export const SYSTEMS = {
   HW: { name: 'Heated water', kind: 'water', color: '#d8452f', material: 'copperB', tempC: 60 },
   SAN: { name: 'Sanitary drainage', kind: 'drain', color: '#8a5a2b', material: 'pvcDwv' },
   SA: { name: 'Supply air', kind: 'air', color: '#1f9a7a', material: 'galvDuct' },
+  NG: { name: 'Natural gas', kind: 'gas', gas: 'NG', color: '#c9a227', material: 'copperB' },
+  LPG: { name: 'LPG', kind: 'gas', gas: 'LPG', color: '#e0701b', material: 'copperB' },
 }
+
+/**
+ * Fuel gases at reference conditions (15 °C, 101.325 kPa). `hv` = gross
+ * heating value MJ/m³, `rho` kg/m³, `mu` dynamic viscosity Pa·s. Typical
+ * figures — the network operator or supplier publishes the actual values.
+ */
+export const GASES = {
+  NG: { name: 'Natural gas', hv: 38.7, rho: 0.73, mu: 1.1e-5 },
+  LPG: { name: 'LPG (propane)', hv: 95.0, rho: 1.87, mu: 8.0e-6 },
+}
+
+/** Air density for the stack effect on gas pressure with height. */
+export const AIR_RHO = 1.2
 
 /**
  * Fixtures. `lu` = loading units, `q` = design flow of one outlet (L/s),
  * `pmin` = minimum working pressure at the outlet (kPa), `hot` = has a hot
  * connection, `du` = discharge unit (L/s, EN 12056-2 System I), `dnMin` =
- * smallest drain it may discharge to.
+ * smallest drain it may discharge to, `mj` = gas consumption (MJ/h).
  */
 export const FIXTURES = {
   basin: { name: 'Basin', lu: 1, q: 0.1, pmin: 50, hot: true, du: 0.5, dnMin: 40 },
@@ -80,6 +95,13 @@ export const FIXTURES = {
   urinal: { name: 'Urinal', lu: 2, q: 0.1, pmin: 50, hot: false, du: 0.8, dnMin: 50 },
   hosetap: { name: 'Hose tap', lu: 5, q: 0.2, pmin: 50, hot: false, du: 0, dnMin: 40 },
   fw: { name: 'Floor waste', lu: 0, q: 0, pmin: 0, hot: false, du: 0.8, dnMin: 50 },
+  cooktop: { name: 'Gas cooktop', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 34 },
+  oven: { name: 'Gas oven', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 20 },
+  hwsInst: { name: 'Gas water heater (continuous flow)', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 199 },
+  hwsStor: { name: 'Gas water heater (storage)', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 37 },
+  heater: { name: 'Gas space heater', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 25 },
+  ducted: { name: 'Ducted gas heater', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 100 },
+  bbq: { name: 'BBQ bayonet', lu: 0, q: 0, pmin: 0, hot: false, du: 0, dnMin: 0, mj: 40 },
 }
 
 /** Drainage frequency factor K for Qww = K·√ΣDU (EN 12056-2 Table 3). */
@@ -102,4 +124,14 @@ export const DEFAULT_SETTINGS = {
   },
   drain: { K: 0.5, grade: 1.65, fill: 0.5 },
   air: { friction: 1.0, vMax: 6.0, fittingsPct: 50, terminalPa: 25, rectDepth: 300 },
+  gas: {
+    diversity: 100, // % of connected load, never below the largest appliance
+    vMax: 10, // m/s — starting size; pipes are then upsized for pressure
+    fittingsPct: 20,
+    // Supply pressure is set on each meter / regulator; appliances need at
+    // least pMin at their inlet. Typical figures — check AS/NZS 5601.1 and the
+    // appliance data plate.
+    NG: { supply: 2.75, pMin: 2.5 },
+    LPG: { supply: 2.75, pMin: 2.6 },
+  },
 }
