@@ -9,6 +9,7 @@
 // pressures are then walked back out from the root to every outlet.
 
 import { MATERIALS, SYSTEMS, GASES, AIR_RHO } from './data.js'
+import { checkGasTable } from './gastables.js'
 
 const G = 9.81
 
@@ -23,12 +24,16 @@ export function waterProps(tempC) {
 
 export const AIR = { rho: 1.2, nu: 1.5e-5 }
 
-/** Darcy friction factor: laminar below Re 2300, Swamee–Jain above. */
+/**
+ * Darcy friction factor: Swamee–Jain, and below Re 2300 the greater of that
+ * and laminar 64/Re. Taking the greater through the transition keeps loss
+ * rising with flow (no jump down at Re 2300) and errs on the safe side.
+ */
 export function frictionFactor(re, roughnessM, diaM) {
   if (re <= 0) return 0
-  if (re < 2300) return 64 / re
   const a = roughnessM / (3.7 * diaM) + 5.74 / re ** 0.9
-  return 0.25 / Math.log10(a) ** 2
+  const turbulent = 0.25 / Math.log10(a) ** 2
+  return re < 2300 ? Math.max(64 / re, turbulent) : turbulent
 }
 
 /** Full-bore flow: velocity (m/s), Reynolds, friction factor and loss (Pa/m). */
@@ -91,7 +96,7 @@ function isRoot(node, sysKey) {
 
 /** The load one node puts on a system. */
 function nodeLoad(node, sysKey, fixtures, warnings) {
-  const load = { lu: 0, qSum: 0, qMax: 0, du: 0, duMax: 0, dnMin: 0, air: 0, mj: 0, mjMax: 0, outlets: 0 }
+  const load = { lu: 0, qSum: 0, qMax: 0, du: 0, duMax: 0, dnMin: 0, air: 0, mj: 0, mjMax: 0, far: 0, outlets: 0 }
   const kind = SYSTEMS[sysKey].kind
   if (kind === 'air') {
     if (node.kind === 'terminal') {
@@ -137,6 +142,7 @@ function addLoad(into, from) {
   into.air += from.air
   into.mj += from.mj
   into.mjMax = Math.max(into.mjMax, from.mjMax)
+  into.far = Math.max(into.far, from.far)
   into.outlets += from.outlets
 }
 
@@ -171,6 +177,81 @@ export function gasLoad(load, gs) {
 
 /** MJ/h to L/s of gas. */
 export const gasFlowLs = (mjh, gasKey) => ((mjh / GASES[gasKey].hv) * 1000) / 3600
+
+// ---------- gas capacity tables ----------
+//
+// AS/NZS 5601.1 sizes consumer piping from capacity tables: for a gas, a pipe
+// material and an allowable pressure drop, each table gives the MJ/h a pipe
+// size carries over a given length. A table here is plain data:
+//   { id, name, gas, material, drop (kPa), source: 'calculated' | 'entered',
+//     lengths: [m, ...ascending], rows: [{ dn, cap: [MJ/h per length] }] }
+// 'calculated' tables are generated below from Darcy–Weisbach and are NOT the
+// published tables. 'entered' tables are typed in or imported by the designer
+// from their own licensed copy of the standard.
+
+export const TABLE_LENGTHS = [2, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100]
+
+/** Largest MJ/h a bore carries over `length` m with `dropKPa` loss. */
+export function gasCapacity(gasKey, bore, roughness, length, dropKPa) {
+  if (!(length > 0) || !(dropKPa > 0)) return 0
+  const fluid = gasProps(gasKey)
+  let lo = 0
+  let hi = 1e6
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2
+    const loss = pipeFlow(gasFlowLs(mid, gasKey), bore, roughness, fluid).paPerM * length
+    if (loss > dropKPa * 1000) hi = mid
+    else lo = mid
+  }
+  return lo
+}
+
+const calcCache = new Map()
+/** A capacity table calculated from first principles for one gas and material. */
+export function calculatedGasTable(gasKey, materialKey, dropKPa, lengths = TABLE_LENGTHS) {
+  const key = `${gasKey}|${materialKey}|${dropKPa}|${lengths.join(',')}`
+  if (calcCache.has(key)) return calcCache.get(key)
+  const mat = MATERIALS[materialKey]
+  const table = {
+    id: 'calc',
+    name: `Calculated — ${GASES[gasKey].name}, ${mat.name}, ${dropKPa} kPa drop`,
+    gas: gasKey,
+    material: materialKey,
+    drop: dropKPa,
+    source: 'calculated',
+    lengths: [...lengths],
+    // Rounded down, as published tables are.
+    rows: mat.sizes.map((s) => ({ dn: s.dn, cap: lengths.map((L) => Math.floor(gasCapacity(gasKey, s.id, mat.roughness, L, dropKPa))) })),
+  }
+  calcCache.set(key, table)
+  return table
+}
+
+/**
+ * Capacity (MJ/h) of a size at a run length, read from the next LONGER length
+ * column as the tables are used — never interpolated toward the shorter one.
+ * Returns NaN when the run is longer than the table goes, 0 for no row/blank.
+ */
+export function tableCapacity(table, dn, length) {
+  const row = table.rows.find((r) => +r.dn === +dn)
+  if (!row) return 0
+  const i = table.lengths.findIndex((L) => +L >= length - 1e-9)
+  if (i < 0) return NaN
+  const v = row.cap[i]
+  return v == null || v === '' ? 0 : +v
+}
+
+/** The table a gas system is sized from, or null for the pressure-drop method. */
+export function gasTableFor(project, sysKey) {
+  const gs = project.settings.gas
+  if (gs.method !== 'table') return null
+  const sys = SYSTEMS[sysKey]
+  const id = gs.tables?.[sys.gas] ?? 'calc'
+  const entered = (project.gasTables || []).find((t) => t.id === id && t.gas === sys.gas)
+  if (entered) return entered
+  const drop = Math.max(0.01, (+gs[sys.gas]?.supply || 0) - (+gs[sys.gas]?.pMin || 0))
+  return calculatedGasTable(sys.gas, sys.material, Math.round(drop * 1000) / 1000)
+}
 
 function pickSize(sizes, ok, locked, bump = 0) {
   if (locked) {
@@ -275,6 +356,27 @@ function solve(project, bumps) {
       // Loads, outlets back to root.
       const load = new Map()
       for (const nid of order) load.set(nid, nodeLoad(nodes.get(nid), sysKey, fixtures, W))
+      // Pipe distance from the root to every node; gas tables are read at the
+      // length of the run to the furthest appliance.
+      const dist = new Map([[root.id, 0]])
+      for (const nid of order) {
+        const pl = parentLink.get(nid)
+        if (pl) dist.set(nid, dist.get(pl.parent) + linkLength(pl.link, nodes, settings.metresPerPx))
+        const ld = load.get(nid)
+        if (ld.mj > 0) ld.far = dist.get(nid)
+      }
+      const longest = Math.max(0, ...[...load.values()].map((ld) => ld.far))
+      let gasTable = sys.kind === 'gas' ? gasTableFor(project, sysKey) : null
+      if (gasTable && gasTable.source !== 'calculated') {
+        const { errors } = checkGasTable(gasTable)
+        if (errors.length) {
+          W.push({ level: 'error', msg: `${sys.name}: table "${gasTable.name}" cannot be read (${errors[0]}) — sized from the calculated table instead` })
+          gasTable = gasTableFor({ ...project, gasTables: [] }, sysKey)
+        }
+      }
+      if (gasTable && links.some((l) => (l.material || sys.material) !== gasTable.material)) {
+        W.push({ level: 'warn', msg: `${sys.name}: some pipes are not ${MATERIALS[gasTable.material]?.name || gasTable.material}, the material of table "${gasTable.name}"` })
+      }
       const children = new Map()
       for (const [child, { parent }] of parentLink) {
         if (!children.has(parent)) children.set(parent, [])
@@ -310,10 +412,28 @@ function solve(project, bumps) {
           const mj = gasLoad(total, gs)
           const q = gasFlowLs(mj, sys.gas)
           const vMax = +gs.vMax || 10
-          const pick = pickSize(mat.sizes, (s) => pipeFlow(q, s.id, mat.roughness, fluid).v <= vMax, l.size, bumps[l.id])
+          let pick
+          if (gasTable) {
+            // AS/NZS 5601.1 method: every section is read at the length of the
+            // longest run (or, if chosen, the run to the furthest appliance it
+            // serves), with the load that section carries.
+            const run = gs.lengthRule === 'branch' ? total.far : longest
+            const tableLength = run * (1 + (gs.tableFittings ? +gs.fittingsPct || 0 : 0) / 100)
+            const sizes = mat.sizes.filter((s) => gasTable.rows.some((r) => +r.dn === s.dn))
+            pick = pickSize(sizes.length ? sizes : mat.sizes, (s) => tableCapacity(gasTable, s.dn, tableLength) >= mj, l.size)
+            const cap = tableCapacity(gasTable, pick.size.dn, tableLength)
+            Object.assign(res, { method: 'table', table: gasTable.name, tableLength, cap, util: Number.isNaN(cap) ? NaN : cap > 0 ? mj / cap : Infinity })
+            res.fail = mj > 0 && !(cap >= mj)
+            if (Number.isNaN(cap)) W.push({ level: 'error', msg: `${l.id}: a ${tableLength.toFixed(1)} m run is longer than table "${gasTable.name}" goes (${gasTable.lengths.at(-1)} m)`, ref: l.id })
+            else if (res.fail) W.push({ level: 'error', msg: `${l.id}: ${mj.toFixed(0)} MJ/h exceeds DN${pick.size.dn} capacity of ${cap.toFixed(0)} MJ/h at ${tableLength.toFixed(1)} m${pick.locked ? ' (size locked)' : ''}`, ref: l.id })
+            if (!sizes.length) W.push({ level: 'error', msg: `${l.id}: table "${gasTable.name}" has no sizes for ${mat.name}`, ref: l.id })
+          } else {
+            pick = pickSize(mat.sizes, (s) => pipeFlow(q, s.id, mat.roughness, fluid).v <= vMax, l.size, bumps[l.id])
+          }
           const flow = pipeFlow(q, pick.size.id, mat.roughness, fluid)
           const loss = (flow.paPerM * length * (1 + (+gs.fittingsPct || 0) / 100)) / 1000
-          Object.assign(res, { mj, mjConnected: total.mj, q, m3h: q * 3.6, dn: pick.size.dn, bore: pick.size.id, v: flow.v, paPerM: flow.paPerM, loss, locked: pick.locked, atMax: pick.atMax, upsized: bumps[l.id] || 0 })
+          // Table-sized pipes are never stepped up by the pressure loop.
+          Object.assign(res, { mj, mjConnected: total.mj, q, m3h: q * 3.6, dn: pick.size.dn, bore: pick.size.id, v: flow.v, paPerM: flow.paPerM, loss, locked: pick.locked, atMax: gasTable ? true : pick.atMax, upsized: gasTable ? 0 : bumps[l.id] || 0 })
           res.label = `DN${res.dn} · ${mj.toFixed(0)} MJ/h`
         } else if (sys.kind === 'drain') {
           const q = drainFlow(total, settings.drain)
@@ -377,11 +497,13 @@ function solve(project, bumps) {
         const gas = GASES[sys.gas]
         const pMin = +settings.gas[sys.gas]?.pMin || 0
         const p = new Map([[root.id, +root.pressure || 0]])
+        const pathOk = new Map([[root.id, true]])
         let critical = null
         for (const nid of order) {
           const n = nodes.get(nid)
           const pl = parentLink.get(nid)
           if (pl) {
+            pathOk.set(nid, pathOk.get(pl.parent) && !out.links[pl.link.id].fail)
             const dz = (+n.z || 0) - (+nodes.get(pl.parent).z || 0)
             // Lighter-than-air gas gains pressure as it rises; LPG loses it.
             p.set(nid, p.get(pl.parent) - out.links[pl.link.id].loss + ((AIR_RHO - gas.rho) * G * dz) / 1000)
@@ -391,15 +513,23 @@ function solve(project, bumps) {
           if (fx && +fx.mj > 0) {
             res.required = pMin
             res.margin = res.pressure - pMin
-            res.ok = res.margin >= -1e-9
-            if (!res.ok) W.push({ level: 'error', msg: `${sys.name}: ${fx.name} ${n.label || n.id} has ${res.pressure.toFixed(2)} kPa, needs ${pMin} kPa`, ref: nid })
+            if (gasTable) {
+              // Sized from the table: the table is the compliance check, the
+              // Darcy pressure is shown as an estimate to cross-check it.
+              res.ok = pathOk.get(nid)
+              res.estimate = true
+              if (res.margin < -1e-9) W.push({ level: 'warn', msg: `${sys.name}: cross-check — ${fx.name} ${n.label || n.id} calculates at ${res.pressure.toFixed(2)} kPa, below ${pMin} kPa. Check the table and run lengths.`, ref: nid })
+            } else {
+              res.ok = res.margin >= -1e-9
+              if (!res.ok) W.push({ level: 'error', msg: `${sys.name}: ${fx.name} ${n.label || n.id} has ${res.pressure.toFixed(2)} kPa, needs ${pMin} kPa`, ref: nid })
+            }
             if (!critical || res.margin < critical.margin) critical = { node: nid, margin: res.margin, pressure: res.pressure }
           }
           ;(out.nodes[nid] ||= {})[sysKey] = res
         }
         const top = subtree.get(root.id)
         const mj = gasLoad(top, settings.gas)
-        Object.assign(rootSummary, { mj, mjConnected: top.mj, m3h: gasFlowLs(mj, sys.gas) * 3.6, critical })
+        Object.assign(rootSummary, { mj, mjConnected: top.mj, m3h: gasFlowLs(mj, sys.gas) * 3.6, critical, method: gasTable ? 'table' : 'pressure', table: gasTable?.name, tableSource: gasTable?.source, longest })
       } else if (sys.kind === 'air') {
         const p = new Map([[root.id, 0]])
         let index = null

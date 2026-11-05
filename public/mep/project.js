@@ -4,7 +4,7 @@ import { FIXTURES, DEFAULT_SETTINGS } from './data.js'
 const clone = (o) => JSON.parse(JSON.stringify(o))
 
 export function newProject(name = 'Untitled project') {
-  return { version: 1, name, seq: 0, settings: clone(DEFAULT_SETTINGS), fixtures: clone(FIXTURES), nodes: [], links: [], underlay: null }
+  return { version: 1, name, seq: 0, settings: clone(DEFAULT_SETTINGS), fixtures: clone(FIXTURES), nodes: [], links: [], underlay: null, gasTables: [] }
 }
 
 /** A two-bedroom apartment: cold and heated water, drainage, natural gas and supply air. */

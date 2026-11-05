@@ -6,7 +6,8 @@
 // (hundreds of elements) that a full redraw on every change is instant.
 
 import { FIXTURES, MATERIALS, SYSTEMS, DRAIN_K, GASES } from './data.js'
-import { calculate, linkLength } from './calc.js'
+import { calculate, linkLength, calculatedGasTable, gasTableFor } from './calc.js'
+import { parseGasTableCsv, gasTableCsv, checkGasTable } from './gastables.js'
 import { newProject, demoProject } from './project.js'
 import { openPdf, closePdf, pageSize, renderPdfPage, metresPerPoint, paperName, putBlob, getBlob, pruneBlobs, blobToDataUrl, dataUrlToBlob, imageSize } from './underlay.js'
 
@@ -64,8 +65,10 @@ function migrate(p) {
         ...p.settings?.gas,
         NG: { ...base.settings.gas.NG, ...p.settings?.gas?.NG },
         LPG: { ...base.settings.gas.LPG, ...p.settings?.gas?.LPG },
+        tables: { ...base.settings.gas.tables, ...p.settings?.gas?.tables },
       },
     },
+    gasTables: p.gasTables || [],
     fixtures: { ...base.fixtures, ...p.fixtures },
   }
 }
@@ -566,6 +569,7 @@ function renderSide() {
   const panel = $('#sidePanel')
   if (state.side === 'settings') panel.innerHTML = settingsPanel()
   else if (state.side === 'library') panel.innerHTML = libraryPanel()
+  else if (state.side === 'gasTables') panel.innerHTML = gasTablesPanel()
   else panel.innerHTML = propsPanel()
 }
 
@@ -592,7 +596,8 @@ function propsPanel() {
     for (const [sysKey, res] of Object.entries(r)) {
       const rows = []
       const d = SYSTEMS[sysKey].kind === 'gas' ? 2 : 0
-      if (res.pressure != null) rows.push(['Pressure', `${fmt(res.pressure, d)} kPa`])
+      if (res.pressure != null) rows.push([res.estimate ? 'Pressure (calc. check)' : 'Pressure', `${fmt(res.pressure, d)} kPa`])
+      if (res.estimate) rows.push(['Table sizing', res.ok ? '<span class="ok">within capacity</span>' : '<span class="err">over capacity</span>'])
       if (res.required != null) rows.push(['Required', `${res.required} kPa`], ['Margin', `<span class="${res.ok ? 'ok' : 'err'}">${fmt(res.margin, d)} kPa</span>`])
       if (res.pathLoss != null) rows.push(['Path loss', `${fmt(res.pathLoss, 1)} Pa`])
       if (res.total != null) rows.push(['Incl. terminal', `${fmt(res.total, 1)} Pa`])
@@ -616,7 +621,11 @@ function propsPanel() {
   if (r) {
     const rows = [['Size', r.dn ? `${sys.kind === 'air' ? 'Ø' : 'DN'}${r.dn}${r.locked ? ' (locked)' : ''}` : '–'], ['Bore', `${fmt(r.bore, 1)} mm`], ['Length', `${fmt(r.length)} m`], ['Outlets served', r.outlets]]
     if (sys.kind === 'water') rows.push(['Loading units', fmt(r.lu, 0)], ['Design flow', `${fmt(r.q)} L/s`], ['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM, 0)} Pa/m`], ['Loss incl. fittings', `${fmt(r.loss)} kPa`], ['Upsized for pressure', r.upsized ? `+${r.upsized} size${r.upsized > 1 ? 's' : ''}` : 'no'])
-    if (sys.kind === 'gas') rows.push(['Connected load', `${fmt(r.mjConnected, 0)} MJ/h`], ['Design load', `${fmt(r.mj, 0)} MJ/h`], ['Gas flow', `${fmt(r.m3h, 2)} m³/h`], ['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM, 1)} Pa/m`], ['Loss incl. fittings', `${fmt(r.loss * 1000, 0)} Pa`], ['Upsized for pressure', r.upsized ? `+${r.upsized} size${r.upsized > 1 ? 's' : ''}` : 'no'])
+    if (sys.kind === 'gas') {
+      rows.push(['Connected load', `${fmt(r.mjConnected, 0)} MJ/h`], ['Design load', `${fmt(r.mj, 0)} MJ/h`], ['Gas flow', `${fmt(r.m3h, 2)} m³/h`])
+      if (r.method === 'table') rows.push(['Sized from', esc(r.table)], ['Read at length', `${fmt(r.tableLength, 1)} m`], ['Table capacity', Number.isNaN(r.cap) ? '<span class="err">beyond table</span>' : `${fmt(r.cap, 0)} MJ/h`], ['Utilisation', Number.isNaN(r.util) ? '–' : `<span class="${r.fail ? 'err' : ''}">${fmt(r.util * 100, 0)} %</span>`], ['Calc. check loss', `${fmt(r.loss * 1000, 0)} Pa`])
+      else rows.push(['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM, 1)} Pa/m`], ['Loss incl. fittings', `${fmt(r.loss * 1000, 0)} Pa`], ['Upsized for pressure', r.upsized ? `+${r.upsized} size${r.upsized > 1 ? 's' : ''}` : 'no'])
+    }
     if (sys.kind === 'drain') rows.push(['Discharge units', fmt(r.du, 1)], ['Design flow', `${fmt(r.q)} L/s`], ['Capacity', `${fmt(r.cap)} L/s`], ['Utilisation', `${fmt(r.util * 100, 0)} %`], ['Velocity', `${fmt(r.v)} m/s`])
     if (sys.kind === 'air') rows.push(['Airflow', `${fmt(r.q, 0)} L/s`], ['Velocity', `${fmt(r.v)} m/s`], ['Friction', `${fmt(r.paPerM)} Pa/m`], ['Rectangular', `${r.rect.w} × ${r.rect.h} mm`], ['Loss incl. fittings', `${fmt(r.loss, 1)} Pa`])
     h += `<h4>Result</h4>${resultRows(rows)}`
@@ -670,6 +679,12 @@ function settingsPanel() {
   ${field('Terminal loss (Pa)', num('settings.air.terminalPa', s.air.terminalPa, 5))}
   ${field('Max rect. depth (mm)', num('settings.air.rectDepth', s.air.rectDepth, 50))}
   <h4>Gas</h4>
+  ${field('Sizing method', sel('settings.gas.method', s.gas.method, [['pressure', 'Pressure drop (calculated)'], ['table', 'Capacity tables (AS/NZS 5601.1 method)']]))}
+  ${s.gas.method === 'table' ? `
+  ${field('Table length', sel('settings.gas.lengthRule', s.gas.lengthRule, [['longest', 'Longest run in the system'], ['branch', 'Run to furthest appliance served']]))}
+  <label class="field"><span>Add fittings allowance to length</span><input type="checkbox" data-path="settings.gas.tableFittings" ${s.gas.tableFittings ? 'checked' : ''} /></label>
+  ${field('NG table', sel('settings.gas.tables.NG', s.gas.tables.NG, tableOptions('NG')))}
+  ${field('LPG table', sel('settings.gas.tables.LPG', s.gas.tables.LPG, tableOptions('LPG')))}` : ''}
   ${field('Diversity (% of connected)', num('settings.gas.diversity', s.gas.diversity, 5))}
   ${field('Fittings allowance (%)', num('settings.gas.fittingsPct', s.gas.fittingsPct, 5))}
   ${field('Starting max velocity (m/s)', num('settings.gas.vMax', s.gas.vMax, 1))}
@@ -677,8 +692,58 @@ function settingsPanel() {
   ${field('NG appliance min (kPa)', num('settings.gas.NG.pMin', s.gas.NG.pMin, 0.05))}
   ${field('LPG regulator (kPa)', num('settings.gas.LPG.supply', s.gas.LPG.supply, 0.05))}
   ${field('LPG appliance min (kPa)', num('settings.gas.LPG.pMin', s.gas.LPG.pMin, 0.05))}
-  <p class="note">Gas: design load = max(largest appliance, diversity × connected MJ/h), converted at ${GASES.NG.hv} MJ/m³ (NG) and ${GASES.LPG.hv} MJ/m³ (LPG). Pipes start at the velocity limit and are upsized until every appliance has its minimum inlet pressure. Meter pressure applies to new meters; edit an existing one on the meter itself.</p>
+  <p class="note">Gas: design load = max(largest appliance, diversity × connected MJ/h), converted at ${GASES.NG.hv} MJ/m³ (NG) and ${GASES.LPG.hv} MJ/m³ (LPG). ${s.gas.method === 'table' ? 'Each section is sized from the chosen capacity table at the run length, for the load it carries; the calculated pressure at each appliance is shown as a cross-check. Calculated tables use the allowable drop = meter pressure − appliance minimum.' : 'Pipes start at the velocity limit and are upsized until every appliance has its minimum inlet pressure.'} Meter pressure applies to new meters; edit an existing one on the meter itself.</p>
   <p class="note">Probable demand: Q = max(largest outlet, k·√ΣLU), never more than the sum of outlet flows. Drainage: Qww = K·√ΣDU (EN 12056-2), sized by Colebrook–White part full. Pipe and duct friction by Darcy–Weisbach.</p>`
+}
+
+function tableOptions(gas) {
+  return [['calc', 'Calculated (Darcy–Weisbach)'], ...P().gasTables.filter((t) => t.gas === gas).map((t) => [t.id, t.name])]
+}
+
+/** The table on show in the Gas tables tab: an entered one, or a calculated one. */
+function viewedGasTable() {
+  const v = state.gasTableView || 'calc:NG'
+  if (v.startsWith('calc:')) {
+    const gas = v.slice(5)
+    return gasTableFor({ ...P(), gasTables: [], settings: { ...P().settings, gas: { ...P().settings.gas, method: 'table' } } }, gas)
+  }
+  return P().gasTables.find((t) => t.id === v) || null
+}
+
+function gasTablesPanel() {
+  const t = viewedGasTable()
+  const opts = [['calc:NG', 'Calculated — natural gas'], ['calc:LPG', 'Calculated — LPG'], ...P().gasTables.map((x) => [x.id, x.name])]
+  let h = `<h3>Gas capacity tables</h3>
+  <label class="field"><span>Show</span><select id="gasTableView">${opts.map(([k, l]) => `<option value="${esc(k)}"${k === (state.gasTableView || 'calc:NG') ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+  <p><button data-cmd="gtImport">Import CSV…</button> <button data-cmd="gtNew">New blank</button></p>`
+  if (!t) return h
+  const gs = P().settings.gas
+  const inUse = gs.method === 'table' && (gs.tables[t.gas] || 'calc') === (t.source === 'calculated' ? 'calc' : t.id)
+  const editable = t.source !== 'calculated'
+  const id = t.id
+  if (editable) {
+    h += field('Name', txt(`gt.${id}.name`, t.name))
+    h += field('Gas', sel(`gt.${id}.gas`, t.gas, Object.entries(GASES).map(([k, g]) => [k, g.name])))
+    h += field('Material', sel(`gt.${id}.material`, t.material, Object.entries(MATERIALS).filter(([, m]) => m.kind === 'pipe').map(([k, m]) => [k, m.name])))
+    h += field('Pressure drop (kPa)', num(`gt.${id}.drop`, t.drop, 0.005))
+  } else {
+    h += `<p class="note">${esc(t.name)}. Calculated from Darcy–Weisbach for the drop between meter pressure and appliance minimum in Design criteria. <b>This is not the published AS/NZS 5601.1 table.</b></p>`
+  }
+  h += `<p class="note">${inUse ? '<span class="ok">In use for sizing.</span>' : 'Not in use — choose it under Design criteria → Gas.'}</p>`
+  const cell = (v, path) => (editable ? `<input type="number" step="any" data-path="${path}" value="${v == null ? '' : esc(v)}" />` : v == null ? '–' : v)
+  h += `<div class="table lib gt"><table><thead><tr><th>DN \\ m</th>${t.lengths.map((L, i) => `<th>${cell(L, `gt.${id}.len.${i}`)}</th>`).join('')}</tr></thead><tbody>${t.rows
+    .map((r, ri) => `<tr><th>${cell(r.dn, `gt.${id}.dn.${ri}`)}</th>${t.lengths.map((_, ci) => `<td>${cell(r.cap[ci], `gt.${id}.cap.${ri}.${ci}`)}</td>`).join('')}</tr>`)
+    .join('')}</tbody></table></div>
+  <p class="note">MJ/h a size carries at each run length (m). Read at the next longer length.</p>`
+  if (editable) {
+    const { errors, warnings } = checkGasTable(t)
+    h += [...errors.map((m) => `<p class="err">${esc(m)}</p>`), ...warnings.map((m) => `<p class="warn">${esc(m)}</p>`)].join('')
+    h += `<p><button data-cmd="gtAddLength">Add length</button> <button data-cmd="gtAddSize">Add size</button> <button data-cmd="gtExport">Export CSV</button> <button data-cmd="gtDelete">Delete table</button></p>`
+  } else {
+    h += `<p><button data-cmd="gtCopy">Make an editable copy</button> <button data-cmd="gtExport">Export CSV</button></p>`
+  }
+  h += `<p class="note">To size to AS/NZS 5601.1, enter the capacities from your licensed copy of the standard: export a calculated table as a template, type the published figures over it in a spreadsheet and import it, or make an editable copy here. The table travels with the project file.</p>`
+  return h
 }
 
 function libraryPanel() {
@@ -698,9 +763,15 @@ function libraryPanel() {
 }
 
 $('#sidePanel').addEventListener('change', (e) => {
+  if (e.target.id === 'gasTableView') {
+    state.gasTableView = e.target.value
+    renderSide()
+    return
+  }
   const path = e.target.dataset.path
   if (!path) return
-  const [scope, id, key, sub] = path.split('.')
+  const parts = path.split('.')
+  const [scope, id, key, sub] = parts
   let value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
   const numeric = e.target.type === 'number' || (e.target.tagName === 'SELECT' && (key === 'K' || key === 'size'))
   if (numeric) value = value === '' ? undefined : +value
@@ -718,6 +789,13 @@ $('#sidePanel').addEventListener('change', (e) => {
     else P().settings[id] = value
   } else if (scope === 'underlay' && P().underlay) {
     P().underlay[id] = value ?? 0
+  } else if (scope === 'gt') {
+    const t = P().gasTables.find((x) => x.id === id)
+    if (!t) return
+    if (key === 'cap') t.rows[+sub].cap[+parts[4]] = value ?? null
+    else if (key === 'len') t.lengths[+sub] = value
+    else if (key === 'dn') t.rows[+sub].dn = value
+    else t[key] = value
   }
   refresh()
 })
@@ -740,8 +818,8 @@ export function linkRows(results) {
       load: { water: `${fmt(r.lu, 0)} LU`, drain: `${fmt(r.du, 1)} DU`, gas: `${fmt(r.mj, 0)} MJ/h`, air: '' }[kind],
       flow: { water: `${fmt(r.q)} L/s`, drain: `${fmt(r.q)} L/s`, gas: `${fmt(r.m3h)} m³/h`, air: `${fmt(r.q, 0)} L/s` }[kind],
       velocity: fmt(r.v),
-      friction: { water: `${fmt(r.paPerM, 0)} Pa/m`, gas: `${fmt(r.paPerM, 1)} Pa/m`, air: `${fmt(r.paPerM)} Pa/m`, drain: `${fmt(r.grade)} % grade` }[kind],
-      loss: { water: `${fmt(r.loss)} kPa`, gas: `${fmt(r.loss * 1000, 0)} Pa`, air: `${fmt(r.loss, 1)} Pa`, drain: `${fmt(r.util * 100, 0)} % full` }[kind],
+      friction: { water: `${fmt(r.paPerM, 0)} Pa/m`, gas: r.method === 'table' ? `table ${Number.isNaN(r.cap) ? 'exceeded' : `${fmt(r.cap, 0)} MJ/h`} @ ${fmt(r.tableLength, 1)} m` : `${fmt(r.paPerM, 1)} Pa/m`, air: `${fmt(r.paPerM)} Pa/m`, drain: `${fmt(r.grade)} % grade` }[kind],
+      loss: { water: `${fmt(r.loss)} kPa`, gas: r.method === 'table' ? (Number.isNaN(r.util) ? 'beyond table' : `${fmt(r.util * 100, 0)} % of capacity`) : `${fmt(r.loss * 1000, 0)} Pa`, air: `${fmt(r.loss, 1)} Pa`, drain: `${fmt(r.util * 100, 0)} % full` }[kind],
     }
   })
 }
@@ -795,7 +873,8 @@ function summaryHtml(results) {
         body = `${fmt(r.lu, 0)} LU · ${fmt(r.q)} L/s design flow${c ? ` · critical outlet ${esc(nodeName(c.node))} at ${fmt(c.pressure, 0)} kPa (<span class="${c.margin >= 0 ? 'ok' : 'err'}">${c.margin >= 0 ? '+' : ''}${fmt(c.margin, 0)} kPa</span>)` : ''}`
       } else if (sys.kind === 'gas') {
         const c = r.critical
-        body = `${fmt(r.mjConnected, 0)} MJ/h connected · ${fmt(r.mj, 0)} MJ/h design · ${fmt(r.m3h)} m³/h${c ? ` · critical appliance ${esc(nodeName(c.node))} at ${fmt(c.pressure, 2)} kPa (<span class="${c.margin >= 0 ? 'ok' : 'err'}">${c.margin >= 0 ? '+' : ''}${fmt(c.margin * 1000, 0)} Pa</span>)` : ''}`
+        const how = r.method === 'table' ? ` · sized from ${r.tableSource === 'calculated' ? 'calculated table' : `table “${esc(r.table)}”`} at ${fmt(r.longest, 1)} m longest run${P().settings.gas.tableFittings ? ` + ${P().settings.gas.fittingsPct}% fittings` : ''}${P().settings.gas.lengthRule === 'branch' ? ' (branches at their own run)' : ''}` : ''
+        body = `${fmt(r.mjConnected, 0)} MJ/h connected · ${fmt(r.mj, 0)} MJ/h design · ${fmt(r.m3h)} m³/h${how}${c ? ` · ${r.method === 'table' ? 'calc. check:' : 'critical appliance'} ${esc(nodeName(c.node))} at ${fmt(c.pressure, 2)} kPa (<span class="${c.margin >= 0 ? 'ok' : 'err'}">${c.margin >= 0 ? '+' : ''}${fmt(c.margin * 1000, 0)} Pa</span>)` : ''}`
       } else if (sys.kind === 'drain') body = `${fmt(r.du, 1)} DU · ${fmt(r.q)} L/s at the connection`
       else body = `${fmt(r.q, 0)} L/s · fan external static ≥ ${fmt(r.esp, 0)} Pa (index terminal ${esc(r.index ? nodeName(r.index.node) : '–')})`
       return `<p><b style="color:${sys.color}">${sys.name}</b> — ${esc(r.label)}: ${body}</p>`
@@ -881,7 +960,8 @@ async function report() {
   <h2>Design criteria</h2>
   <p>Water: ${s.water.method === 'sqrt' ? `probable demand Q = max(largest outlet, ${s.water.kLU}·√ΣLU)` : 'sum of outlet flows'}; max velocity ${s.water.vMax} m/s; fittings +${s.water.fittingsPct}%.<br>
   Drainage: Qww = ${s.drain.K}·√ΣDU; default grade ${s.drain.grade}%; design filling h/d ${s.drain.fill}.<br>
-  Supply air: ${s.air.friction} Pa/m friction, max ${s.air.vMax} m/s; fittings +${s.air.fittingsPct}%; terminal ${s.air.terminalPa} Pa.</p>
+  Supply air: ${s.air.friction} Pa/m friction, max ${s.air.vMax} m/s; fittings +${s.air.fittingsPct}%; terminal ${s.air.terminalPa} Pa.<br>
+  Gas: diversity ${s.gas.diversity}%; ${s.gas.method === 'table' ? `capacity tables at the ${s.gas.lengthRule === 'branch' ? 'run to the furthest appliance served' : 'longest run'}${s.gas.tableFittings ? ` + ${s.gas.fittingsPct}% fittings` : ''} — ${['NG', 'LPG'].map((g) => `${g}: ${esc(gasTableFor({ ...P(), settings: { ...s, gas: { ...s.gas, method: 'table' } } }, g)?.name || '–')}`).join('; ')}` : `pressure drop calculation, fittings +${s.gas.fittingsPct}%`}; appliance minimum NG ${s.gas.NG.pMin} kPa, LPG ${s.gas.LPG.pMin} kPa.</p>
   <h2>Pipe & duct schedule</h2>${table(['Ref', 'System', 'Material', 'Size', 'Length m', 'Load', 'Flow', 'Vel m/s', 'Friction / grade', 'Loss / fill'], links.map((x) => [x.id, x.system, x.material, x.size, x.length, x.load, x.flow, x.velocity, x.friction, x.loss]))}
   <h2>Outlets</h2>${table(['Ref', 'Label', 'Type', 'System', 'Pressure / path loss', 'Required', 'Status'], outlets.map((x) => [x.id, esc(x.label), esc(x.name), x.system, x.value, x.required, x.status]))}
   <h2>Bill of materials</h2>${table(['System', 'Material', 'Size', 'Length m', 'Runs'], r.bom.map((b) => [SYSTEMS[b.system].name, b.material, `${SYSTEMS[b.system].kind === 'air' ? 'Ø' : 'DN'}${b.dn}`, fmt(b.length), b.count]))}
@@ -981,6 +1061,51 @@ const commands = {
   fit() { fitView(); render() },
   report,
   delete: deleteSelection,
+  gtImport: () => $('#gasTableFile').click(),
+  gtNew() {
+    const gas = (state.gasTableView || '').startsWith('calc:') ? state.gasTableView.slice(5) : 'NG'
+    const mat = MATERIALS[SYSTEMS[gas].material]
+    addGasTable({ name: `New ${gas} table`, gas, material: SYSTEMS[gas].material, drop: null, source: 'entered', lengths: [5, 10, 20, 30, 50], rows: mat.sizes.slice(0, 6).map((z) => ({ dn: z.dn, cap: [null, null, null, null, null] })) })
+  },
+  gtCopy() {
+    const t = viewedGasTable()
+    if (!t) return
+    addGasTable({ ...clone(t), name: `Editable copy — ${GASES[t.gas].name} (replace with published figures)`, source: 'entered' })
+  },
+  gtExport() {
+    const t = viewedGasTable()
+    if (t) download(`${fileSafe(t.name)}.csv`, gasTableCsv(t), 'text/csv')
+  },
+  gtAddLength() {
+    const t = viewedGasTable()
+    const L = parseFloat(prompt('Run length in metres:') || '')
+    if (!t || !(L > 0) || t.lengths.includes(L)) return
+    snapshot()
+    let i = t.lengths.findIndex((x) => +x > L)
+    if (i < 0) i = t.lengths.length
+    t.lengths.splice(i, 0, L)
+    for (const r of t.rows) r.cap.splice(i, 0, null)
+    refresh()
+  },
+  gtAddSize() {
+    const t = viewedGasTable()
+    const dn = parseFloat(prompt('Pipe size (DN):') || '')
+    if (!t || !(dn > 0) || t.rows.some((r) => +r.dn === dn)) return
+    snapshot()
+    let i = t.rows.findIndex((r) => +r.dn > dn)
+    if (i < 0) i = t.rows.length
+    t.rows.splice(i, 0, { dn, cap: t.lengths.map(() => null) })
+    refresh()
+  },
+  gtDelete() {
+    const t = viewedGasTable()
+    if (!t || t.source === 'calculated' || !confirm(`Delete table "${t.name}"?`)) return
+    snapshot()
+    P().gasTables = P().gasTables.filter((x) => x.id !== t.id)
+    if (P().settings.gas.tables[t.gas] === t.id) P().settings.gas.tables[t.gas] = 'calc'
+    state.gasTableView = `calc:${t.gas}`
+    refresh()
+  },
   addFixture() {
     const name = prompt('Fixture name:')
     if (!name) return
@@ -1019,6 +1144,26 @@ $('#openFile').addEventListener('change', async (e) => {
     alert(`Could not open that file: ${err.message}`)
   }
 })
+function addGasTable(t) {
+  snapshot()
+  t.id = nextId('GT')
+  P().gasTables.push(t)
+  state.gasTableView = t.id
+  state.side = 'gasTables'
+  refresh()
+}
+
+$('#gasTableFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]
+  e.target.value = ''
+  if (!f) return
+  try {
+    addGasTable(parseGasTableCsv(await f.text(), f.name.replace(/\.[^.]+$/, '')))
+  } catch (err) {
+    alert(`Could not import that table: ${err.message}`)
+  }
+})
+
 $('#underlayFile').addEventListener('change', (e) => {
   const f = e.target.files[0]
   e.target.value = ''

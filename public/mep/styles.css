@@ -72,3 +72,6 @@ dialog { border: 1px solid var(--line); border-radius: 10px; background: var(--p
 dialog::backdrop { background: rgb(0 0 0 / .35); }
 dialog h3 { margin: 0 0 8px; }
 .actions { text-align: right; margin: 12px 0 0; }
+.gt input { width: 58px; padding: 2px 4px; }
+.gt th, .gt td { padding: 2px 3px; }
+.gt tbody th { position: static; }

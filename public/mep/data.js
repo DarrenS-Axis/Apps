@@ -126,6 +126,12 @@ export const DEFAULT_SETTINGS = {
   air: { friction: 1.0, vMax: 6.0, fittingsPct: 50, terminalPa: 25, rectDepth: 300 },
   gas: {
     diversity: 100, // % of connected load, never below the largest appliance
+    // 'pressure' = Darcy–Weisbach with upsizing for appliance pressure;
+    // 'table' = capacity tables at the longest run (AS/NZS 5601.1 method).
+    method: 'pressure',
+    lengthRule: 'longest', // 'longest' run in the system, or 'branch' = furthest appliance each section serves
+    tableFittings: true, // add the fittings allowance to the length the table is read at
+    tables: { NG: 'calc', LPG: 'calc' }, // table id per gas; 'calc' = calculated
     vMax: 10, // m/s — starting size; pipes are then upsized for pressure
     fittingsPct: 20,
     // Supply pressure is set on each meter / regulator; appliances need at
