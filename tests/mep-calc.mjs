@@ -5,6 +5,7 @@ import { calculate, pipeFlow, drainCapacity, waterProps, AIR, waterDemand, drain
 import { demoProject, newProject } from '../public/mep/project.js'
 import { calculatedGasTable, tableCapacity, gasCapacity } from '../public/mep/calc.js'
 import { parseGasTableCsv, gasTableCsv, checkGasTable } from '../public/mep/gastables.js'
+import { project, displayPositions, stackIndex, levels, bounds } from '../public/mep/views.js'
 
 let passed = 0
 const test = (name, fn) => { fn(); passed++; console.log(`  ok  ${name}`) }
@@ -265,6 +266,60 @@ test('table CSV round-trips and reports bad input by line', () => {
   assert.throws(() => parseGasTableCsv('DN,10,5\n15,100,80'), /increase/)
   assert.throws(() => parseGasTableCsv('gas,CO2\nDN,5\n15,1'), /gas must be/)
   assert.match(checkGasTable({ ...TEST_TABLE, rows: [{ dn: 15, cap: [100, 150, 70, 45] }] }).warnings[0], /rises/)
+})
+
+// ---------- orthographic views ----------
+
+test('views project plan positions and heights', () => {
+  const n = { x: 100, y: 40, z: 3 } // 3 m at 0.05 m/px = 60 px
+  assert.deepEqual(project(n, 'plan', 0.05), { x: 100, y: 40 })
+  assert.deepEqual(project(n, 'front', 0.05), { x: 100, y: -60 })
+  assert.deepEqual(project(n, 'side', 0.05), { x: -40, y: -60 })
+  const iso = project(n, 'iso', 0.05)
+  near(iso.x, 60 * Math.cos(Math.PI / 6), 1e-9, 'iso x')
+  near(iso.y, 70 - 60, 1e-9, 'iso y')
+  // a 1 m vertical rise is 20 px straight up in every view but plan
+  for (const m of ['front', 'side', 'iso']) {
+    const a = project({ x: 5, y: 5, z: 0 }, m, 0.05)
+    const b = project({ x: 5, y: 5, z: 1 }, m, 0.05)
+    assert.equal(a.x, b.x)
+    near(a.y - b.y, 20, 1e-9, m)
+  }
+})
+
+test('isometric keeps true length along each plan axis', () => {
+  const o = project({ x: 0, y: 0, z: 0 }, 'iso', 1)
+  const e = project({ x: 10, y: 0, z: 0 }, 'iso', 1)
+  near(Math.hypot(e.x - o.x, e.y - o.y), 10, 1e-9, 'east axis')
+  near(Math.atan2(e.y - o.y, e.x - o.x), Math.PI / 6, 1e-9, '30° below horizontal')
+})
+
+test('risers are stacked in plan so each point stays clickable', () => {
+  const nodes = [
+    { id: 'A', x: 10, y: 10, z: 0 }, { id: 'B', x: 10, y: 10, z: 3 }, { id: 'C', x: 10, y: 10, z: 6 }, { id: 'D', x: 50, y: 10, z: 0 },
+  ]
+  const idx = stackIndex(nodes)
+  assert.deepEqual(['A', 'B', 'C', 'D'].map((k) => idx.get(k)), [0, 1, 2, 0])
+  const plan = displayPositions(nodes, 'plan', 0.05)
+  assert.deepEqual(plan.get('A'), { x: 10, y: 10 })
+  assert.deepEqual(plan.get('C'), { x: 34, y: -14 })
+  const front = displayPositions(nodes, 'front', 0.05)
+  assert.deepEqual(front.get('B'), { x: 10, y: -60 })
+  assert.deepEqual(levels(nodes), [0, 3, 6])
+  assert.deepEqual(bounds(front, 0), { x: 10, y: -120, w: 40, h: 120 })
+})
+
+test('demo riser: the level-1 basin loses the static head of 3 m', () => {
+  const p = demoProject()
+  const r = calculate(p)
+  const basin = p.nodes.find((n) => n.label === 'L1 basin')
+  const riser = Object.values(r.links).find((l) => l.to === basin.id)
+  const bottom = p.links.find((l) => l.b === riser.from)
+  near(r.links[bottom.id].length, 3, 1e-9, 'riser length is the rise')
+  const tee = r.nodes[bottom.a].CW.pressure
+  const top = r.nodes[riser.from].CW.pressure
+  near(tee - top - r.links[bottom.id].loss, (998.2 * 9.81 * 3) / 1000, 0.1, 'static head')
+  assert.ok(r.nodes[basin.id].CW.ok)
 })
 
 console.log(`mep-calc: ${passed} passed`)

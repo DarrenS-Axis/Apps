@@ -42,6 +42,9 @@
       <label>Fixture type
         <select id="fixtureType"></select>
       </label>
+      <label>New points at level (m)
+        <input type="number" id="level" step="0.1" value="0" />
+      </label>
       <label class="check"><input type="checkbox" id="ortho" checked /> Orthogonal</label>
       <label class="check"><input type="checkbox" id="labels" checked /> Size labels</label>
       <label>Underlay opacity
@@ -60,12 +63,16 @@
         <g id="view">
           <rect id="gridRect" x="-50000" y="-50000" width="100000" height="100000" fill="url(#grid)" />
           <image id="underlay" />
+          <g id="levelsLayer"></g>
           <g id="linksLayer"></g>
           <g id="labelsLayer"></g>
           <g id="nodesLayer"></g>
           <g id="ghostLayer"></g>
         </g>
       </svg>
+      <div class="viewbar" role="group" aria-label="View">
+        <button data-view="plan" class="on">Plan</button><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="iso">Isometric</button>
+      </div>
       <div class="status" id="status"></div>
     </section>
 

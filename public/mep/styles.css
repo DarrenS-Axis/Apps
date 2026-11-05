@@ -75,3 +75,12 @@ dialog h3 { margin: 0 0 8px; }
 .gt input { width: 58px; padding: 2px 4px; }
 .gt th, .gt td { padding: 2px 3px; }
 .gt tbody th { position: static; }
+/* views */
+.viewbar { position: absolute; top: 8px; right: 8px; display: flex; box-shadow: 0 1px 3px rgb(0 0 0 / .12); border-radius: 6px; }
+.viewbar button { border-radius: 0; margin-left: -1px; padding: 4px 10px; }
+.viewbar button:first-child { border-radius: 6px 0 0 6px; }
+.viewbar button:last-child { border-radius: 0 6px 6px 0; }
+body:not([data-view="plan"]) #gridRect { display: none; }
+body:not([data-view="plan"]) #toolButtons, body:not([data-view="plan"]) .tools label:not(.check) { opacity: .45; pointer-events: none; }
+.level { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 8 4 2 4; vector-effect: non-scaling-stroke; }
+.levelLbl { fill: var(--muted); }

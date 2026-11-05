@@ -42,6 +42,20 @@ pdf.js is not committed: `npm run build` copies the main app's `pdfjs-dist` into
 `mep/vendor/`. When serving the folder directly, run `npm run mep:vendor` once, or
 it falls back to the jsDelivr CDN.
 
+## Views and risers
+
+The view switcher on the drawing shows **Plan**, **Front** (from the south), **Side** (from
+the east) and **Isometric** (from the south-east, 30°). All four are true to scale, using each
+point's elevation. Elevations draw a dashed level line at every height in use. You draw in
+plan. The other views are for checking, and clicking a pipe or point there selects it.
+
+To run between levels, select a point and choose **Add riser / drop**, then enter the rise
+(+) or drop (−) in metres. That adds a point directly above or below, joined by a vertical
+run of the service already at that point. It also sets **New points at level** to the new
+height, so you can draw on from the top of the riser. Stacked points show slightly offset
+in plan so each can be clicked, and dragging one moves the whole riser. The printed report
+includes the plan and the isometric.
+
 ## Gas capacity tables
 
 Choose **Design criteria → Gas → Sizing method: Capacity tables**. The **Gas tables** tab
@@ -75,6 +89,7 @@ be read falls back to the calculated one with an error. Tables are saved with th
 
 - `data.js`: materials, systems, fixture library, default criteria (typical values, to be checked against the job's standard)
 - `calc.js`: the solver, with no DOM access. Tested by `npm run test:mep` (`tests/mep-calc.mjs`)
+- `views.js`: plan, elevation and isometric projections, riser stacking
 - `gastables.js`: gas capacity table CSV import/export and checks
 - `underlay.js`: PDF rendering (pdf.js) and the IndexedDB plan store
 - `project.js`: project factory and the worked demo
@@ -85,7 +100,7 @@ be read falls back to the calculated one with an error. Tables are saved with th
 Ring mains and looped networks, hot water circulation and heat loss, gas
 pressure tiers (meter → regulator → appliance), fire
 hydrant/sprinkler hydraulics, stormwater, vent sizing, heat-load calculation,
-DWG underlays, multi-level views, 3D, Revit/IFC exchange, fittings take-off
+DWG underlays, a 3D (perspective) model, a level-by-level plan filter, Revit/IFC exchange, fittings take-off
 and costing, and multi-user collaboration.
 
 Results are indicative: a competent designer must verify them against AS/NZS 3500
