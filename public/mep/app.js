@@ -448,8 +448,9 @@ svg.addEventListener('pointerdown', (e) => {
   const nodeId = nodeEl?.dataset.node || (state.tool === 'link' ? nodeNear(pt) : undefined)
   const link = linkEl ? linkById(linkEl.dataset.link) : null
 
-  if (e.button === 1 || (e.button === 0 && e.altKey)) {
-    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: state.view.x, vy: state.view.y }
+  // Right-drag or middle-drag (or Alt-drag) pans, whatever the tool or view.
+  if (e.button === 2 || e.button === 1 || (e.button === 0 && e.altKey)) {
+    drag = { type: 'pan', button: e.button, sx: e.clientX, sy: e.clientY, vx: state.view.x, vy: state.view.y, moved: false }
     svg.setPointerCapture(e.pointerId)
     return
   }
@@ -545,6 +546,7 @@ svg.addEventListener('pointermove', (e) => {
   const pt = toWorld(e)
   ghostTo = state.tool === 'link' ? placePoint(pt) : pt
   if (drag?.type === 'pan') {
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 3) drag.moved = true
     state.view.x = drag.vx + e.clientX - drag.sx
     state.view.y = drag.vy + e.clientY - drag.sy
     view.setAttribute('transform', `translate(${state.view.x} ${state.view.y}) scale(${state.view.k})`)
@@ -566,8 +568,18 @@ svg.addEventListener('pointermove', (e) => {
 
 svg.addEventListener('pointerup', () => {
   if (drag?.type === 'node' && drag.moved) refresh()
+  // A right-click without dragging finishes the run being drawn, like Esc.
+  if (drag?.type === 'pan' && drag.button === 2 && !drag.moved && state.linkStart) {
+    state.linkStart = null
+    ghostTo = null
+    renderGhost()
+    hint()
+  }
   drag = null
 })
+
+// The drawing's right button is for panning, not the browser's menu.
+svg.addEventListener('contextmenu', (e) => e.preventDefault())
 
 svg.addEventListener('wheel', (e) => {
   e.preventDefault()
@@ -605,9 +617,9 @@ function setTool(tool) {
 
 function hint() {
   const h = {
-    select: 'Click to select, drag to move. Drag empty space to pan, wheel to zoom. Delete removes, Ctrl+Z undoes.',
+    select: 'Click to select, drag to move. Right-drag (or drag empty space) to pan, wheel to zoom. Delete removes, Ctrl+Z undoes.',
     link: state.linkStart
-      ? 'Click a node, a pipe (to tee in) or empty space to continue. Esc to finish.'
+      ? 'Click a node, a pipe (to tee in) or empty space to continue. Esc or right-click to finish; right-drag pans.'
       : `Click a node or empty space to start a ${SYSTEMS[state.system].name.toLowerCase()} run.`,
     root: `Click to place a ${ROOT_LABEL[sysKind()].toLowerCase()} for ${SYSTEMS[state.system].name.toLowerCase()}.`,
     fixture: 'Click to place the fixture chosen below. Connect it with Pipe / duct for each service it needs.',
