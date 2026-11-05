@@ -36,7 +36,7 @@ design report (Print → Save as PDF).
 5. Select anything to edit it: elevation, supply pressure, airflow, material, locked size, length override, drain grade.
 6. **Design criteria** and **Fixtures** set the project's assumptions.
 
-Shortcuts: V select, P pipe, S source, F fixture, T terminal, J junction, Delete, Ctrl+Z / Ctrl+Y. Wheel zooms, drag empty space (or Alt-drag) pans.
+Shortcuts: V select, P pipe, S source, F fixture, T terminal, J junction, Delete, Ctrl+Z / Ctrl+Y. Wheel zooms. Right-drag pans in any tool or view (so do middle-drag, Alt-drag, and dragging empty space with Select). A right-click without dragging finishes the run being drawn.
 
 pdf.js is not committed: `npm run build` copies the main app's `pdfjs-dist` into
 `mep/vendor/`. When serving the folder directly, run `npm run mep:vendor` once, or
