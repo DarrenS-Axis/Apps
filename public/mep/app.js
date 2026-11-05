@@ -8,6 +8,7 @@
 import { FIXTURES, MATERIALS, SYSTEMS, DRAIN_K, GASES } from './data.js'
 import { calculate, linkLength, calculatedGasTable, gasTableFor } from './calc.js'
 import { parseGasTableCsv, gasTableCsv, checkGasTable } from './gastables.js'
+import { VIEWS, displayPositions, levels, bounds, stackOf } from './views.js'
 import { newProject, demoProject } from './project.js'
 import { openPdf, closePdf, pageSize, renderPdfPage, metresPerPoint, paperName, putBlob, getBlob, pruneBlobs, blobToDataUrl, dataUrlToBlob, imageSize } from './underlay.js'
 
@@ -23,6 +24,9 @@ const ROOT_LABEL = { water: 'Source', gas: 'Gas meter / regulator', drain: 'Drai
 const KIND_NAME = { source: 'Source', outlet: 'Drain connection', ahu: 'Air handler', fixture: 'Fixture', terminal: 'Air terminal', junction: 'Junction' }
 
 const state = {
+  mode: 'plan', // plan | front | side | iso
+  views: {}, // pan/zoom remembered per view
+  level: 0, // height (m) new points are placed at
   project: load() || newProject(),
   selection: null, // { type: 'node'|'link', id }
   tool: 'select',
@@ -152,7 +156,7 @@ function refresh() {
 }
 
 function addNode(kind, x, y, extra = {}) {
-  const n = { id: nextId('N'), kind, x, y, z: 0, label: '', ...extra }
+  const n = { id: nextId('N'), kind, x, y, z: state.level, label: '', ...extra }
   if (kind === 'source' && sysKind() === 'gas') Object.assign(n, { system: state.system, pressure: P().settings.gas[SYSTEMS[state.system].gas]?.supply ?? 2.75, label: n.label || (state.system === 'LPG' ? 'LPG regulator' : 'Gas meter') })
   else if (kind === 'source') Object.assign(n, { system: state.system, pressure: 350, label: n.label || (state.system === 'HW' ? 'Water heater' : 'Water meter') })
   if (kind === 'outlet') Object.assign(n, { system: state.system, label: n.label || 'Sewer connection' })
@@ -173,7 +177,12 @@ function addLink(a, b, system = state.system) {
 
 /** Split a link at a point, returning the new junction. */
 function splitLink(link, x, y) {
-  const j = addNode('junction', x, y)
+  // A tee on a sloping or vertical run sits at the height along the run.
+  const a = nodeById(link.a)
+  const b = nodeById(link.b)
+  const span = Math.hypot(b.x - a.x, b.y - a.y)
+  const t = span ? Math.hypot(x - a.x, y - a.y) / span : 0.5
+  const j = addNode('junction', x, y, { z: Math.round(((+a.z || 0) + t * ((+b.z || 0) - (+a.z || 0))) * 1000) / 1000 })
   const tail = { ...clone(link), id: nextId('L'), a: j.id, length: undefined }
   link.b = j.id
   link.length = undefined
@@ -222,10 +231,20 @@ function el(tag, attrs = {}, parent) {
   return e
 }
 
+// Where each point is drawn in the current view; rebuilt on every redraw.
+let pos = new Map()
+function layout() {
+  pos = displayPositions(P().nodes, state.mode, P().settings.metresPerPx)
+}
+
 function render() {
+  layout()
+  document.body.dataset.view = state.mode
+  for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === state.mode)
   const { x, y, k } = state.view
   view.setAttribute('transform', `translate(${x} ${y}) scale(${k})`)
   renderUnderlay()
+  renderLevels()
   renderLinks()
   renderNodes()
   renderGhost()
@@ -233,13 +252,15 @@ function render() {
   renderResults()
   $('#projectName').value = P().name
   const m = P().settings.metresPerPx
-  status(`Scale 1 px = ${fmt(m, 4)} m${P().underlay?.ratio ? ` (1:${P().underlay.ratio})` : ""} · snap 0.1 m · zoom ${fmt(k * 100, 0)}%`)
+  status(state.mode === 'plan'
+    ? `Scale 1 px = ${fmt(m, 4)} m${P().underlay?.ratio ? ` (1:${P().underlay.ratio})` : ''} · snap 0.1 m · new points at ${fmt(state.level, 2)} m · zoom ${fmt(k * 100, 0)}%`
+    : `${VIEWS[state.mode]} view — select to inspect; switch to Plan to draw · zoom ${fmt(k * 100, 0)}%`)
 }
 
 function renderUnderlay() {
   const img = $('#underlay')
   const u = P().underlay
-  if (!u) {
+  if (!u || state.mode !== 'plan') {
     img.removeAttribute('href')
     img.setAttribute('width', 0)
     return
@@ -254,6 +275,21 @@ function renderUnderlay() {
   img.setAttribute('opacity', $('#underlayOpacity').value)
 }
 
+/** Level lines with their heights, on the front and side elevations. */
+function renderLevels() {
+  const layer = $('#levelsLayer')
+  layer.replaceChildren()
+  if (state.mode !== 'front' && state.mode !== 'side') return
+  const box = bounds(pos, 60)
+  if (!box) return
+  const mpp = P().settings.metresPerPx
+  for (const z of levels(P().nodes)) {
+    const y = -z / mpp
+    el('line', { x1: box.x, y1: y, x2: box.x + box.w, y2: y, class: 'level' }, layer)
+    el('text', { x: box.x, y: y - 4, class: 'lbl levelLbl' }, layer).textContent = `${z >= 0 ? '+' : ''}${z.toFixed(2)} m`
+  }
+}
+
 function renderLinks() {
   const layer = $('#linksLayer')
   const labels = $('#labelsLayer')
@@ -264,9 +300,9 @@ function renderLinks() {
   // Parallel links (CW + HW + SAN on the same route) are offset so all show.
   const pairCount = new Map()
   for (const l of P().links) {
-    const a = nodes.get(l.a)
-    const b = nodes.get(l.b)
-    if (!a || !b) continue
+    if (!nodes.has(l.a) || !nodes.has(l.b)) continue
+    const a = pos.get(l.a)
+    const b = pos.get(l.b)
     const key = [l.a, l.b].sort().join('|')
     const i = pairCount.get(key) || 0
     pairCount.set(key, i + 1)
@@ -280,7 +316,12 @@ function renderLinks() {
     el('line', { ...coords, class: `link ${sys.kind}${sel ? ' selected' : ''}`, stroke: sys.color }, layer)
     el('line', { ...coords, class: 'link hit', 'data-link': l.id }, layer)
     const r = state.results?.links[l.id]
-    if (showLabels && r) {
+    // Off plan, runs seen end-on collapse to a point: label only what has room.
+    const na = nodes.get(l.a)
+    const nb = nodes.get(l.b)
+    const riser = na.x === nb.x && na.y === nb.y
+    const room = state.mode === 'plan' ? !riser : Math.hypot(b.x - a.x, b.y - a.y) * state.view.k >= 90
+    if (showLabels && r && room) {
       const mx = (a.x + b.x) / 2 + ox
       const my = (a.y + b.y) / 2 + oy
       const vertical = Math.abs(b.y - a.y) > Math.abs(b.x - a.x)
@@ -300,9 +341,11 @@ function nodeFails(n) {
 function renderNodes() {
   const layer = $('#nodesLayer')
   layer.replaceChildren()
+  const captioned = []
   for (const n of P().nodes) {
     const sel = state.selection?.type === 'node' && state.selection.id === n.id
-    const g = el('g', { class: `node${sel ? ' selected' : ''}`, 'data-node': n.id, transform: `translate(${n.x} ${n.y})` }, layer)
+    const p = pos.get(n.id)
+    const g = el('g', { class: `node${sel ? ' selected' : ''}`, 'data-node': n.id, transform: `translate(${p.x} ${p.y})` }, layer)
     const color = n.system ? SYSTEMS[n.system].color : null
     const fail = nodeFails(n) ? ' fail' : ''
     let caption = n.label
@@ -325,7 +368,12 @@ function renderNodes() {
     } else {
       el('circle', { r: 4, class: 'shape', style: 'fill:var(--ink)' }, g)
     }
-    if (caption) el('text', { y: n.kind === 'junction' ? -8 : 22, 'text-anchor': 'middle' }, g).textContent = caption
+    // Off plan, points in line with each other share a spot: one caption each.
+    const crowded = state.mode !== 'plan' && captioned.some((q) => Math.hypot(q.x - p.x, q.y - p.y) * state.view.k < 40)
+    if (caption && !crowded) {
+      el('text', { y: n.kind === 'junction' ? -8 : 22, 'text-anchor': 'middle' }, g).textContent = caption
+      captioned.push(p)
+    }
   }
 }
 
@@ -334,7 +382,7 @@ function renderGhost() {
   const layer = $('#ghostLayer')
   layer.replaceChildren()
   if (state.tool === 'link' && state.linkStart && ghostTo) {
-    const a = nodeById(state.linkStart)
+    const a = pos.get(state.linkStart)
     if (a) el('line', { x1: a.x, y1: a.y, x2: ghostTo.x, y2: ghostTo.y, class: 'ghost' }, layer)
   }
   if (state.tool === 'scale' && state.scalePts.length === 1 && ghostTo) {
@@ -364,9 +412,9 @@ const snap = (v) => {
 function nodeNear(pt) {
   const r = 12 / state.view.k
   let best = null
-  for (const n of P().nodes) {
-    const d = Math.hypot(n.x - pt.x, n.y - pt.y)
-    if (d <= r && (!best || d < best.d)) best = { id: n.id, d }
+  for (const [id, p] of pos) {
+    const d = Math.hypot(p.x - pt.x, p.y - pt.y)
+    if (d <= r && (!best || d < best.d)) best = { id, d }
   }
   return best?.id
 }
@@ -407,12 +455,24 @@ svg.addEventListener('pointerdown', (e) => {
   }
   if (e.button !== 0) return
 
+  // Elevations and the isometric are views of the plan: select and pan only.
+  if (state.mode !== 'plan') {
+    const id = nodeEl?.dataset.node
+    state.selection = id ? { type: 'node', id } : link ? { type: 'link', id: link.id } : null
+    if (!id && !link) drag = { type: 'pan', sx: e.clientX, sy: e.clientY, vx: state.view.x, vy: state.view.y }
+    svg.setPointerCapture(e.pointerId)
+    state.side = 'props'
+    render()
+    return
+  }
+
   switch (state.tool) {
     case 'select':
       if (nodeId) {
         state.selection = { type: 'node', id: nodeId }
         const n = nodeById(nodeId)
-        drag = { type: 'node', id: nodeId, ox: pt.x - n.x, oy: pt.y - n.y, moved: false }
+        // A riser moves as one: everything stacked at this plan position.
+        drag = { type: 'node', id: nodeId, ox: pt.x - n.x, oy: pt.y - n.y, moved: false, stack: stackOf(P().nodes, n).map((m) => m.id) }
       } else if (link) {
         state.selection = { type: 'link', id: link.id }
       } else {
@@ -429,7 +489,9 @@ svg.addEventListener('pointerdown', (e) => {
       if (!target && link) target = splitLink(link, ...Object.values(projectOnto(link, pt))).id
       if (!target) {
         const p = placePoint(pt)
-        target = addNode('junction', p.x, p.y).id
+        // A run carries on at the height it started from.
+        const from = state.linkStart && nodeById(state.linkStart)
+        target = addNode('junction', p.x, p.y, from ? { z: +from.z || 0 } : {}).id
       }
       if (state.linkStart) {
         const l = addLink(state.linkStart, target)
@@ -489,11 +551,12 @@ svg.addEventListener('pointermove', (e) => {
     return
   }
   if (drag?.type === 'node') {
-    const n = nodeById(drag.id)
     if (!drag.moved) snapshot()
     drag.moved = true
-    n.x = snap(pt.x - drag.ox)
-    n.y = snap(pt.y - drag.oy)
+    const x = snap(pt.x - drag.ox)
+    const y = snap(pt.y - drag.oy)
+    for (const id of drag.stack) Object.assign(nodeById(id), { x, y })
+    layout()
     renderLinks()
     renderNodes()
     return
@@ -592,6 +655,8 @@ function propsPanel() {
     }
     if (n.kind === 'fixture') h += field('Type', sel(`node.${n.id}.fixture`, n.fixture, Object.entries(P().fixtures).map(([k, v]) => [k, v.name])))
     if (n.kind === 'terminal') h += field('Airflow (L/s)', num(`node.${n.id}.airflow`, n.airflow, 5))
+    const stacked = stackOf(P().nodes, n).length
+    h += `<p><button data-cmd="addRiser">Add riser / drop</button>${stacked > 1 ? ` <span class="note">${stacked} points in this riser</span>` : ''}</p>`
     const r = state.results?.nodes[n.id] || {}
     for (const [sysKey, res] of Object.entries(r)) {
       const rows = []
@@ -852,7 +917,8 @@ function nodeName(id) {
 /** Frame the drawing in the window. */
 function fitView(toUnderlay = false) {
   const u = P().underlay
-  const pts = toUnderlay || !P().nodes.length ? (u ? [{ x: u.x, y: u.y }, { x: u.x + u.w, y: u.y + u.h }] : []) : P().nodes
+  layout()
+  const pts = (toUnderlay || !P().nodes.length) && state.mode === 'plan' ? (u ? [{ x: u.x, y: u.y }, { x: u.x + u.w, y: u.y + u.h }] : []) : [...pos.values()]
   if (!pts.length) return
   const r = svg.getBoundingClientRect()
   const xs = pts.map((n) => n.x)
@@ -916,7 +982,8 @@ $('#resultsPanel').addEventListener('click', (e) => {
   const [type, id] = tr.dataset.ref.split(':')
   state.selection = { type, id }
   state.side = 'props'
-  const n = type === 'node' ? nodeById(id) : nodeById(linkById(id)?.a)
+  layout()
+  const n = pos.get(type === 'node' ? id : linkById(id)?.a)
   if (n) {
     const r = svg.getBoundingClientRect()
     state.view.x = r.width / 2 - n.x * state.view.k
@@ -938,12 +1005,22 @@ function exportCsv() {
 async function report() {
   const r = state.results
   const css = await fetch('./styles.css').then((x) => x.text()).catch(() => '')
-  // A copy of the drawing framed around its contents.
-  const xs = P().nodes.map((n) => n.x)
-  const ys = P().nodes.map((n) => n.y)
-  const pad = 60
-  const box = xs.length ? [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) - Math.min(...xs) + 2 * pad, Math.max(...ys) - Math.min(...ys) + 2 * pad] : [0, 0, 100, 100]
-  const drawing = `<svg xmlns="${SVG}" viewBox="${box.join(' ')}" style="width:100%;max-height:520px;border:1px solid #ccc;background:#fff">${$('#linksLayer').outerHTML}${$('#labelsLayer').outerHTML}${$('#nodesLayer').outerHTML}</svg>`
+  // The plan and the isometric, each framed around its contents. The layers
+  // are drawn in each view in turn, copied, and the screen put back.
+  const was = state.mode
+  const sheet = (mode) => {
+    state.mode = mode
+    layout()
+    renderLevels()
+    renderLinks()
+    renderNodes()
+    const b = bounds(pos, 60) || { x: 0, y: 0, w: 100, h: 100 }
+    return `<svg xmlns="${SVG}" viewBox="${b.x} ${b.y} ${b.w} ${b.h}" style="width:100%;max-height:560px;border:1px solid #ccc;background:#fff">${$('#levelsLayer').outerHTML}${$('#linksLayer').outerHTML}${$('#labelsLayer').outerHTML}${$('#nodesLayer').outerHTML}</svg>`
+  }
+  const drawing = sheet('plan')
+  const isometric = sheet('iso')
+  state.mode = was
+  render()
   const links = linkRows(r)
   const outlets = outletRows(r)
   const s = P().settings
@@ -956,7 +1033,8 @@ async function report() {
   <button onclick="print()">Print / save as PDF</button>
   <h1>${esc(P().name)}</h1><p class="note">Hydraulic & mechanical services design report · ${new Date().toLocaleString('en-AU')} · Axis MEP Design</p>
   <h2>Summary</h2>${summaryHtml(r)}
-  <h2>Drawing</h2>${drawing}
+  <h2>Plan</h2>${drawing}
+  <h2>Isometric</h2>${isometric}
   <h2>Design criteria</h2>
   <p>Water: ${s.water.method === 'sqrt' ? `probable demand Q = max(largest outlet, ${s.water.kLU}·√ΣLU)` : 'sum of outlet flows'}; max velocity ${s.water.vMax} m/s; fittings +${s.water.fittingsPct}%.<br>
   Drainage: Qww = ${s.drain.K}·√ΣDU; default grade ${s.drain.grade}%; design filling h/d ${s.drain.fill}.<br>
@@ -1058,6 +1136,23 @@ const commands = {
   },
   underlay: () => $('#underlayFile').click(),
   csv: exportCsv,
+  addRiser() {
+    const n = state.selection?.type === 'node' && nodeById(state.selection.id)
+    if (!n) return
+    // The riser carries the service already at this point, if there is one.
+    const sysHere = [...new Set(P().links.filter((l) => l.a === n.id || l.b === n.id).map((l) => l.system))]
+    const system = sysHere.length === 1 ? sysHere[0] : state.system
+    const dz = parseFloat(prompt(`${SYSTEMS[system].name} riser from ${fmt(+n.z || 0, 2)} m. Rise (+) or drop (−), in metres:`, '3.0') || '')
+    if (!dz) return
+    snapshot()
+    const top = addNode('junction', n.x, n.y, { z: Math.round(((+n.z || 0) + dz) * 1000) / 1000 })
+    addLink(n.id, top.id, system)
+    state.selection = { type: 'node', id: top.id }
+    state.level = top.z
+    $('#level').value = top.z
+    refresh()
+    status(`Riser added — new points now go at ${fmt(top.z, 2)} m. Draw on from the top of the riser.`)
+  },
   fit() { fitView(); render() },
   report,
   delete: deleteSelection,
@@ -1116,7 +1211,24 @@ const commands = {
   },
 }
 
+function setView(mode) {
+  if (!VIEWS[mode] || mode === state.mode) return
+  state.views[state.mode] = { ...state.view }
+  state.mode = mode
+  state.linkStart = null
+  ghostTo = null
+  if (state.views[mode]) {
+    state.view = { ...state.views[mode] }
+    render()
+  } else {
+    fitView()
+    render()
+  }
+}
+
 document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-view]')
+  if (v) setView(v.dataset.view)
   const c = e.target.closest('[data-cmd]')
   if (c) commands[c.dataset.cmd]?.()
   const t = e.target.closest('[data-tool]')
@@ -1170,6 +1282,10 @@ $('#underlayFile').addEventListener('change', (e) => {
   if (f) loadUnderlay(f)
 })
 $('#underlayOpacity').addEventListener('input', renderUnderlay)
+$('#level').addEventListener('change', (e) => {
+  state.level = parseFloat(e.target.value) || 0
+  render()
+})
 $('#labels').addEventListener('change', renderLinks)
 $('#projectName').addEventListener('change', (e) => { P().name = e.target.value; persist() })
 $('#system').addEventListener('change', (e) => {

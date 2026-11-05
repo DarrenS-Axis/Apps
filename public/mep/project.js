@@ -35,6 +35,9 @@ export function demoProject() {
   L(meter, c1, 'CW'); L(c1, c2, 'CW'); L(c2, hose, 'CW', { length: 6 }); L(c2, c4, 'CW'); L(c4, basin, 'CW'); L(c4, c5, 'CW')
   L(c5, shower, 'CW'); L(c5, c6, 'CW'); L(c6, wc, 'CW'); L(c6, c8, 'CW'); L(c8, bath, 'CW')
   L(c1, c3, 'CW'); L(c3, sink, 'CW'); L(sink, dw, 'CW'); L(c3, c7, 'CW'); L(c7, trough, 'CW'); L(trough, washer, 'CW')
+  // a 3 m cold-water riser from the kitchen tee to a basin on the level above
+  const r1 = N('junction', 480, 300, { z: 3 }); const l1 = N('fixture', 480, 160, { fixture: 'basin', label: 'L1 basin', z: 3 })
+  L(c3, r1, 'CW'); L(r1, l1, 'CW')
   // heated water
   const h1 = N('junction', 360, 240); const h2 = N('junction', 200, 240); const h3 = N('junction', 280, 240); const h4 = N('junction', 440, 240)
   const h5 = N('junction', 580, 420)
