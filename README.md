@@ -12,6 +12,10 @@ reporting. Each state operates in its own silo; national QA sees everything.
 
 Live: <https://darrens-axis.github.io/Apps/>
 
+**Axis MEP Design**, a separate pipe & duct sizing tool (cold/heated water, sanitary
+drainage, supply air), lives in [`public/mep/`](public/mep/README.md) and is published
+alongside the app at `/Apps/mep/`.
+
 ---
 
 ## How it is organised

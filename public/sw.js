@@ -78,9 +78,33 @@ self.addEventListener('activate', (e) => {
   )
 })
 
+// The MEP design tool (./mep/) is a separate app shown in a frame on the
+// Design tab. Its files are not hashed, so they are fetched network first —
+// a deploy reaches the next open — with the cached copy used offline.
+const MEP_PATH = new URL('./mep/', self.registration.scope).pathname
+
+function networkFirst(req) {
+  return fetch(req)
+    .then((res) => {
+      if (res.ok && res.type === 'basic') {
+        const copy = res.clone()
+        caches.open(CACHE).then((c) => c.put(req, copy))
+      }
+      return res
+    })
+    .catch(() => caches.match(req, { ignoreVary: true }).then((r) => r || Response.error()))
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return
+
+  // Must come before the navigation handler: the design tool's own page is a
+  // navigation too, and must never be stored as the QA app's shell.
+  if (new URL(req.url).pathname.startsWith(MEP_PATH)) {
+    e.respondWith(networkFirst(req))
+    return
+  }
 
   // Navigations: network first so a new deploy is picked up, falling back to the
   // cached shell.

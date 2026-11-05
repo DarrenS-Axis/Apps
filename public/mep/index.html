@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f2436" />
+  <title>Axis MEP Design</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="bar">
+    <strong class="brand">Axis MEP Design</strong>
+    <input id="projectName" class="name" aria-label="Project name" />
+    <span class="spacer"></span>
+    <button data-cmd="new">New</button>
+    <button data-cmd="demo">Demo</button>
+    <button data-cmd="open">Open…</button>
+    <button data-cmd="save">Save</button>
+    <button data-cmd="underlay">Underlay…</button>
+    <button data-cmd="csv">Export CSV</button>
+    <button data-cmd="fit">Fit</button>
+    <button data-cmd="report" class="primary">Report</button>
+    <input type="file" id="openFile" accept=".json,application/json" hidden />
+    <input type="file" id="gasTableFile" accept=".csv,text/csv,.txt" hidden />
+    <input type="file" id="underlayFile" accept="application/pdf,.pdf,image/*" hidden />
+  </header>
+
+  <main class="layout">
+    <nav class="tools" aria-label="Tools">
+      <label class="sys">System
+        <select id="system"></select>
+      </label>
+      <div class="group" id="toolButtons">
+        <button data-tool="select" title="Select / move (V)">Select</button>
+        <button data-tool="link" title="Draw pipe or duct (P)">Pipe / duct</button>
+        <button data-tool="root" id="rootTool" title="Source / outlet / AHU (S)">Source</button>
+        <button data-tool="fixture" title="Fixture (F)">Fixture</button>
+        <button data-tool="terminal" title="Air terminal (T)">Air terminal</button>
+        <button data-tool="junction" title="Junction (J)">Junction</button>
+        <button data-tool="scale" title="Calibrate scale from two points">Set scale</button>
+      </div>
+      <label>Fixture type
+        <select id="fixtureType"></select>
+      </label>
+      <label class="check"><input type="checkbox" id="ortho" checked /> Orthogonal</label>
+      <label class="check"><input type="checkbox" id="labels" checked /> Size labels</label>
+      <label>Underlay opacity
+        <input type="range" id="underlayOpacity" min="0" max="1" step="0.05" value="0.5" />
+      </label>
+      <div class="hint" id="hint"></div>
+    </nav>
+
+    <section class="canvasWrap">
+      <svg id="canvas" tabindex="0" aria-label="Drawing">
+        <defs>
+          <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M20 0H0V20" fill="none" class="gridline" />
+          </pattern>
+        </defs>
+        <g id="view">
+          <rect id="gridRect" x="-50000" y="-50000" width="100000" height="100000" fill="url(#grid)" />
+          <image id="underlay" />
+          <g id="linksLayer"></g>
+          <g id="labelsLayer"></g>
+          <g id="nodesLayer"></g>
+          <g id="ghostLayer"></g>
+        </g>
+      </svg>
+      <div class="status" id="status"></div>
+    </section>
+
+    <aside class="side">
+      <div class="tabs" role="tablist">
+        <button data-side="props" class="on">Properties</button>
+        <button data-side="settings">Design criteria</button>
+        <button data-side="library">Fixtures</button>
+        <button data-side="gasTables">Gas tables</button>
+      </div>
+      <div id="sidePanel" class="panel"></div>
+    </aside>
+  </main>
+
+  <section class="results">
+    <div class="tabs" role="tablist">
+      <button data-res="summary" class="on">Summary</button>
+      <button data-res="links">Pipes &amp; ducts</button>
+      <button data-res="outlets">Outlets</button>
+      <button data-res="bom">Bill of materials</button>
+      <button data-res="warnings">Warnings <span id="warnCount"></span></button>
+    </div>
+    <div id="resultsPanel" class="panel table"></div>
+  </section>
+
+  <dialog id="pdfDialog">
+    <form method="dialog">
+      <h3>Place PDF page</h3>
+      <p class="note"><span id="pdfName"></span><br /><span id="pdfPaper"></span></p>
+      <label class="field"><span>Page</span><select id="pdfPage"></select></label>
+      <label class="field"><span>Drawing scale 1 :</span><input id="pdfScale" type="number" min="1" step="1" placeholder="e.g. 100" /></label>
+      <p class="note">Use the scale printed in the title block for this sheet size. Leave it blank to calibrate from two points instead.</p>
+      <p class="actions"><button value="cancel">Cancel</button> <button value="ok" class="primary">Place page</button></p>
+    </form>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
