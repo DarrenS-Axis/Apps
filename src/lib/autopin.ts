@@ -13,6 +13,10 @@
  *    with no number at all. There is no register to match, so each tag
  *    becomes a new penetration, numbered in reading order.
  *
+ *  - **Diameter tags**: just "Ø40" or "Ø80" beside the symbol, with no type.
+ *    The same mark labels pipe runs, so a diameter tag only counts when a
+ *    penetration symbol sits beside it; its type is left to confirm.
+ *
  * Either way the pin goes on the *symbol* the tag labels, not on the text:
  * the tag is written beside the penetration, sometimes on a leader, and a pin
  * on the words would put the collar in the wrong place. The symbol is found by
@@ -48,14 +52,26 @@ const NOT_A_TYPE = new Set(['MM', 'DIA', 'RL', 'FFL', 'SSL', 'FL', 'AHD', 'CL', 
 export interface ParsedTag {
   size: number
   ref: string
+  /** "Ø40": a diameter with no type. */
+  diameterOnly?: boolean
 }
 
+/** The diameter mark as drawings write it: Ø, ø, ⌀, ∅, or AutoCAD's unrendered %%c. */
+const DIAMETER = /Ø|⌀|∅|%%C/g
+
 /**
- * Reads a size-and-type tag: "100 FW", "40 IWTD", "100mm WC", "ST 100", "FW100".
- * Returns null for anything else.
+ * Reads a size-and-type tag: "100 FW", "40 IWTD", "100mm WC", "ST 100", "FW100",
+ * "Ø100 FW" — or a diameter alone, "Ø40". Returns null for anything else; a
+ * bare number is a dimension, not a tag.
  */
 export function parseTypeTag(text: string): ParsedTag | null {
-  const t = text.trim().toUpperCase().replace(/Ø|⌀/g, '')
+  const upper = text.trim().toUpperCase()
+  const diameter = new RegExp(DIAMETER.source).test(upper)
+  const t = upper.replace(DIAMETER, ' ').replace(/\s+/g, ' ').trim()
+  if (diameter) {
+    const d = /^(\d{2,3})\s*(?:MM)?$/.exec(t)
+    if (d && NOMINAL_SIZES.has(Number(d[1]))) return { size: Number(d[1]), ref: '', diameterOnly: true }
+  }
   const sizeFirst = /^(\d{2,3})\s*(?:MM)?\s*([A-Z][A-Z0-9]{0,5})$/.exec(t)
   const typeFirst = /^([A-Z][A-Z0-9]{0,5}?)\s*(\d{2,3})\s*(?:MM)?$/.exec(t)
   const m = sizeFirst ? { size: Number(sizeFirst[1]), ref: sizeFirst[2] } : typeFirst ? { size: Number(typeFirst[2]), ref: typeFirst[1] } : null
@@ -384,6 +400,8 @@ export interface ScannedTag {
   /** Size and type, when the tag carries them. */
   size?: number
   ref?: string
+  /** A diameter with no type ("Ø40"): the type is to confirm. */
+  diameterOnly?: boolean
   /** Normalised 0..1 position of the pin — on the symbol when one was found. */
   x: number
   y: number
@@ -422,6 +440,7 @@ interface RawTag {
   number?: string
   size?: number
   ref?: string
+  diameterOnly?: boolean
   /** Text box in page points, y down. */
   left: number
   top: number
@@ -473,22 +492,23 @@ export async function scanPenetrationPlan(
           }
         }
         if (used.has(idx)) return
-        // Size-and-type tags, whole in one run…
+        // Tags split across two runs on the same line ("100" "FW", "Ø" "40", "Ø100" "FW")…
+        const next = runs[idx + 1]
+        if (next && !used.has(idx + 1) && Math.abs(next.bottom - r.bottom) < 2 && next.left - r.right < 6) {
+          const joined = parseTypeTag(`${r.str} ${next.str}`)
+          // A diameter in one run with its type in the next is a size-and-type tag, not a diameter alone.
+          if (joined && (!joined.diameterOnly || !parseTypeTag(r.str))) {
+            raw.push({ text: `${r.str} ${next.str}`, ...joined, left: r.left, top: Math.min(r.top, next.top), right: next.right, bottom: r.bottom })
+            used.add(idx)
+            used.add(idx + 1)
+            return
+          }
+        }
+        // …or whole in one run.
         const parsed = parseTypeTag(r.str)
         if (parsed) {
           raw.push({ text: r.str, ...parsed, left: r.left, top: r.top, right: r.right, bottom: r.bottom })
           used.add(idx)
-          return
-        }
-        // …or split across two runs on the same line ("100" "FW").
-        const next = runs[idx + 1]
-        if (next && !used.has(idx + 1) && Math.abs(next.bottom - r.bottom) < 2 && next.left - r.right < 6) {
-          const joined = parseTypeTag(`${r.str} ${next.str}`)
-          if (joined) {
-            raw.push({ text: `${r.str} ${next.str}`, ...joined, left: r.left, top: Math.min(r.top, next.top), right: next.right, bottom: r.bottom })
-            used.add(idx)
-            used.add(idx + 1)
-          }
         }
       })
 
@@ -497,7 +517,8 @@ export async function scanPenetrationPlan(
       if (raw.length) {
         opts.onProgress?.({ page: n, total, stage: 'symbols' })
         const placed = await placeOnSymbols(page, vp.width, vp.height, raw)
-        tags = placed.tags
+        // "Ø100" also labels pipe runs: a diameter tag with no penetration symbol beside it is not one.
+        tags = placed.tags.filter((t) => !(t.diameterOnly && !t.onSymbol))
         // A lone type code beside an unclaimed symbol is its tag, missing a size.
         const loose = runs.filter((r, i) => !used.has(i) && /^[A-Z]{1,5}$/.test(r.str) && !NOT_A_TYPE.has(r.str))
         untagged = placed.unclaimed.map((sym) => {
@@ -655,6 +676,7 @@ function toTag(t: RawTag, width: number, height: number): Omit<ScannedTag, 'onSy
     number: t.number,
     size: t.size,
     ref: t.ref,
+    diameterOnly: t.diameterOnly,
     x: (t.left + t.right) / 2 / width,
     y: (t.top + t.bottom) / 2 / height,
   }

@@ -657,6 +657,8 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
   const [frl, setFrl] = useState('')
   const [element, setElement] = useState('')
   const [includeUntagged, setIncludeUntagged] = useState(true)
+  // Diameter-only tags ("Ø40") carry no type; one can be given for them all here.
+  const [diameterRef, setDiameterRef] = useState('')
   const [busy, setBusy] = useState(false)
 
   const read = async (file: File | undefined) => {
@@ -690,7 +692,7 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
         setError(
           plan.kind === 'image'
             ? 'That is an image, not a searchable PDF — Autopin needs the drawing as a PDF with a text layer. Add penetrations by hand on this image instead.'
-            : 'No penetration tags were found. Autopin reads tags like "100 FW", "ST 100" or a register number such as "F0001-FW-100mm". A scanned drawing has no text to read.',
+            : 'No penetration tags were found. Autopin reads tags like "100 FW", "ST 100", "Ø40" beside a penetration symbol, or a register number such as "F0001-FW-100mm". A scanned drawing has no text to read.',
         )
       } else {
         // A wall plan says so in its title; everything else is taken as floor.
@@ -755,13 +757,18 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
   const totals = useMemo(() => {
     const tags = pages?.flatMap((p) => p.scan.tags) ?? []
     const byType = new Map<string, number>()
-    for (const t of tags) if (t.size && t.ref && !t.number) byType.set(`${t.size} ${t.ref}`, (byType.get(`${t.size} ${t.ref}`) ?? 0) + 1)
+    for (const t of tags) {
+      if (t.number || !t.size) continue
+      const key = t.diameterOnly ? `Ø${t.size}` : t.ref ? `${t.size} ${t.ref}` : ''
+      if (key) byType.set(key, (byType.get(key) ?? 0) + 1)
+    }
     const untagged = pages?.reduce((n, p) => n + p.scan.untagged.length, 0) ?? 0
     return {
       tags: tags.length,
       untagged,
       onSymbol: tags.filter((t) => t.onSymbol).length,
       matched: tags.filter((t) => t.number).length,
+      diameterOnly: tags.filter((t) => t.diameterOnly && !t.number).length,
       created: tags.filter((t) => !t.number).length + (includeUntagged ? untagged : 0),
       byType: [...byType.entries()].sort((a, b) => b[1] - a[1]),
     }
@@ -809,7 +816,8 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
             continue
           }
           const number = plannedNumbers.get(`${pi}:${i}`)
-          if (!number || !tag.size || !tag.ref) continue
+          const ref = tag.ref || (tag.diameterOnly ? diameterRef.trim().toUpperCase() : '')
+          if (!number || !tag.size || (!ref && !tag.diameterOnly)) continue
           await createPenetration({
             projectId,
             number,
@@ -817,7 +825,8 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
             level: level || undefined,
             size: `${tag.size}mm`,
             sizeMm: tag.size,
-            ref: tag.ref,
+            ref,
+            ...(tag.diameterOnly && !ref ? { notes: `Tag on the drawing gives the diameter only ("${tag.text}") — confirm the type with the consultant.` } : {}),
             material: '',
             frl,
             elementMaterial: element,
@@ -874,7 +883,8 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
           <>
             <p className="small muted" style={{ margin: 0 }}>
               Choose the penetration drawing as a PDF. Autopin reads every tag — size and type such as <strong>100 FW</strong>, <strong>40 B</strong> or{' '}
-              <strong>ST 100</strong>, or a register number such as <strong>F0001-FW-100mm</strong> — and places a pin on the penetration symbol it labels.
+              <strong>ST 100</strong>, a diameter such as <strong>Ø40</strong>, or a register number such as <strong>F0001-FW-100mm</strong> — and places a
+              pin on the penetration symbol it labels.
               You check the result before anything is saved.
             </p>
             <input type="file" accept="application/pdf,.pdf" disabled={busy} onChange={(e) => void read(e.target.files?.[0])} />
@@ -902,6 +912,24 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
                   type with the consultant.
                 </div>
               </label>
+            ) : null}
+            {totals.diameterOnly ? (
+              <div className="banner banner--info" style={{ flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 220px' }}>
+                  <strong>
+                    {totals.diameterOnly} tag{totals.diameterOnly === 1 ? ' gives' : 's give'} the diameter only
+                  </strong>{' '}
+                  (Ø, no type). Give the type if the drawing&apos;s legend says it — otherwise they are created flagged to confirm.
+                </div>
+                <input
+                  type="text"
+                  value={diameterRef}
+                  onChange={(e) => setDiameterRef(e.target.value.toUpperCase().slice(0, 8))}
+                  placeholder="Type, e.g. FW"
+                  aria-label="Type for diameter-only tags"
+                  style={{ width: 130, flex: 'none' }}
+                />
+              </div>
             ) : null}
             {totals.byType.length ? (
               <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -932,7 +960,7 @@ function AutopinSheet({ projectId, onClose, onDone }: { projectId: string; onClo
                       drawingId: preview.id,
                       x: t.x,
                       y: t.y,
-                      label: t.number ?? `${t.size ?? ''}${t.ref ?? ''}`,
+                      label: t.number ?? (t.diameterOnly ? `Ø${t.size}` : `${t.size ?? ''}${t.ref ?? ''}`),
                       note: t.onSymbol ? t.text : `${t.text} — at the tag, no symbol found`,
                       createdAt: 0,
                     })),

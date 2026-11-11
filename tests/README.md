@@ -39,6 +39,11 @@ console or page error along the way.
   `ST 100`, a tag with a dimension line through it, two stacked tags, an incomplete `B`,
   and decoys such as `SPECT 01`): checks the preview reads seven tags plus one flagged
   symbol, every pin lands on its symbol, numbers are allocated, and a re-run adds nothing.
+  Then a drawing with diameter tags laid out like the team's sheets (`Ø40` above-left and
+  `Ø80` left of two stacked symbols on a pipe, dimension lines through them, a `Ø` and
+  `50` written as separate text, `Ø100` `FW`, and a `Ø150` pipe label with no symbol):
+  four penetrations, each on its symbol, the three diameter-only ones flagged to confirm
+  the type, `100 FW` typed, and the pipe label and dimensions ignored.
 - `smoke-reviewdoc.mjs` — a defect raised with the plan imported from inside the sheet (a
   multi-sheet PDF, one sheet chosen), pinned and the pin moved, the device's position
   recorded (the browser is placed at Liverpool Hospital), every defect shown on the plan

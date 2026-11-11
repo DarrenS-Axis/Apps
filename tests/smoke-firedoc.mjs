@@ -87,6 +87,56 @@ const INDUSTRY = [
   fs.writeFileSync(industryPath, Buffer.from(doc.output('arraybuffer')))
 }
 
+// Diameter tags, as on the hydraulic sheet the team works from: a purple disc
+// with a dark red crosshair, "Ø40" above and to the left of one, "Ø80" to the
+// left of the one below it, dimension lines running through both. Also a
+// diameter written as two text runs ("Ø" "50"), a diameter with its type in
+// the next run ("Ø100" "FW", a size-and-type tag), and "Ø150" labelling a pipe
+// run with no penetration symbol near it, which is not a penetration.
+const diameterPath = path.join(OUT, 'diameter-plan.pdf')
+const DIAMETER = [
+  { tag: 'Ø40', sym: [120, 60], at: [111, 57] },
+  { tag: 'Ø80', sym: [120, 67], at: [111, 68] },
+  { tag: 'Ø50', sym: [180, 60], at: [171, 61], split: true },
+]
+{
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' })
+  const symbol = (x, y) => {
+    doc.setFillColor(112, 0, 149)
+    doc.circle(x, y, 1.3, 'F')
+    doc.setDrawColor(150, 0, 20)
+    doc.setLineWidth(0.25)
+    doc.line(x - 2.2, y, x + 2.2, y)
+    doc.line(x, y - 2.2, x, y + 2.2)
+  }
+  doc.setFontSize(8)
+  doc.setTextColor(0, 0, 0)
+  for (const d of DIAMETER) {
+    symbol(...d.sym)
+    if (d.split) {
+      doc.text('Ø', d.at[0], d.at[1])
+      doc.text(d.tag.slice(1), d.at[0] + 2.3, d.at[1])
+    } else doc.text(d.tag, ...d.at)
+  }
+  symbol(230, 60)
+  doc.text('Ø100', 218, 61)
+  doc.text('FW', 225.4, 61)
+  // The vertical pipe through both symbols, and dimension lines through them.
+  doc.setDrawColor(0, 0, 0)
+  doc.setLineWidth(0.3)
+  doc.line(120, 40, 120, 80)
+  doc.line(110, 60, 160, 60)
+  doc.line(110, 67, 160, 67)
+  doc.text('100', 128, 48)
+  doc.text('438', 150, 50)
+  // A pipe run labelled with its diameter, far from any penetration symbol.
+  doc.line(40, 140, 120, 140)
+  doc.text('Ø150', 70, 138)
+  doc.setFontSize(10)
+  doc.text('HC-301 GROUND PENETRATION  REV A', 30, 195)
+  fs.writeFileSync(diameterPath, Buffer.from(doc.output('arraybuffer')))
+}
+
 const registerPath = path.join(OUT, 'autopin-register.csv')
 fs.writeFileSync(
   registerPath,
@@ -279,6 +329,34 @@ await page.waitForTimeout(1500)
 const rerun = await page.locator('.toast').innerText().catch(() => '')
 console.log('re-run:', rerun)
 if (Object.keys(await stored()).length !== Object.keys(pens).length) errors.push('Re-running Autopin on the same sheet duplicated penetrations')
+
+// --- 7. Diameter tags ("Ø40"), placed on their symbols, flagged to confirm the type.
+const before7 = await stored()
+await page.getByRole('button', { name: /Autopin from penetration plan/ }).click()
+await page.locator('.sheet input[type=file]').setInputFiles(diameterPath)
+await page.getByText(/tagged penetrations found/).waitFor({ timeout: 60000 })
+const dBanners = (await page.locator('.sheet .banner').allInnerTexts()).map((b) => b.replace(/\s+/g, ' '))
+console.log('diameter preview:', dBanners.join(' || '))
+if (!/4 tagged penetrations found .* 4 placed on their symbol/.test(dBanners[0])) errors.push(`Expected the 4 diameter / size tags placed on their symbols (and the Ø150 pipe label ignored): ${dBanners[0]}`)
+if (!dBanners.some((b) => /3 tags give the diameter only/.test(b))) errors.push('The diameter-only tags were not called out')
+const dTypes = (await page.locator('.sheet .chip').allInnerTexts()).join(' | ')
+console.log('diameter types read:', dTypes)
+for (const t of ['Ø40', 'Ø80', 'Ø50', '100 FW']) if (!dTypes.includes(t)) errors.push(`${t} was not read from the diameter drawing`)
+if (/150|438/.test(dTypes)) errors.push('A pipe-run diameter or a dimension was read as a penetration')
+await shot('06-diameter-preview')
+await page.locator('.sheet').getByRole('button', { name: /^Create/ }).click()
+await page.waitForTimeout(1500)
+const after7 = await stored()
+const dFresh = Object.values(after7).filter((p) => !before7[p.number])
+console.log('created from the diameter drawing:', dFresh.map((p) => `${p.number} ${p.size} ${p.ref || '(type?)'}`).join(', '))
+if (dFresh.length !== 4) errors.push(`Expected 4 penetrations from the diameter drawing, got ${dFresh.length}`)
+for (const d of DIAMETER) {
+  const size = `${d.tag.slice(1)}mm`
+  const hit = dFresh.find((p) => p.size === size && Math.hypot(p.x * 297 - d.sym[0], p.y * 210 - d.sym[1]) < 1)
+  if (!hit) errors.push(`${d.tag} was not placed on its symbol at ${d.sym}`)
+  else if (hit.ref || !/diameter only/.test(hit.notes ?? '')) errors.push(`${d.tag} should be created with no type, flagged to confirm`)
+}
+if (!dFresh.some((p) => p.size === '100mm' && p.ref === 'FW')) errors.push('"Ø100" "FW" was not read as a 100 FW penetration')
 
 await browser.close()
 console.log(errors.length ? 'ERRORS:\n' + errors.join('\n') : 'Firedoc check passed.')

@@ -91,7 +91,12 @@ The exported PDF carries all of it in the Controldoc layout.
   symbols are found from the drawing's own vector linework (with an image search as a
   fallback for scanned sheets), and each tag is paired with its nearest symbol so the pin
   sits on the penetration, not the text. Titles, grid lines, dimensions and labels like
-  `SPECT 01` are ignored. Symbols whose tag is incomplete (`B` with no size) are offered
+  `SPECT 01` are ignored. Diameter tags with no type — `Ø40`, `Ø80` (also `ø`, `⌀`,
+  `∅`, AutoCAD's `%%c`, and a `Ø` written as its own text) — are read when a penetration
+  symbol sits beside them; the same mark labels pipe runs, so a `Ø150` with no symbol is
+  ignored. A type can be given for them all in the preview (from the drawing's legend);
+  otherwise they are created with the size and flagged to confirm the type. `Ø100 FW` is
+  a normal size-and-type tag. Symbols whose tag is incomplete (`B` with no size) are offered
   too, flagged to confirm size and type with the consultant. A preview shows every pin,
   the types read (`40 B × 20`) and the numbers to be allocated (`F0001`… in reading order,
   skipping numbers in use) before anything is written; the sheet is added to Plans and
