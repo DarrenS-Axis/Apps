@@ -1757,3 +1757,44 @@ table.report .report__bad {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
+
+/* MEP design: the tool fills the space between the header and the tab bar */
+.main--full {
+  max-width: none;
+  padding: 0 0 calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+}
+.design {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.design__bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.design__bar p {
+  flex: 1;
+  margin: 0;
+}
+.design__frame {
+  flex: 1;
+  width: 100%;
+  min-height: calc(100dvh - var(--header-h) - var(--tabbar-h) - 64px);
+  border: 0;
+  display: block;
+}
+.design__narrow {
+  display: none;
+}
+@media (max-width: 900px) {
+  .design__narrow {
+    display: inline;
+  }
+}

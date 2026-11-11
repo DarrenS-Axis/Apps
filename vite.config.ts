@@ -1,8 +1,25 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { copyFileSync, mkdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+// Axis MEP Design (public/mep) is a no-build app that reads PDF underlays with
+// pdf.js. Copy the same pdf.js the main app uses next to it, so the published
+// site needs no CDN.
+const PDFJS_FILES = ['pdf.min.mjs', 'pdf.worker.min.mjs']
+export function copyPdfjs(outDir: string) {
+  mkdirSync(outDir, { recursive: true })
+  for (const f of PDFJS_FILES) copyFileSync(resolve('node_modules/pdfjs-dist/legacy/build', f), resolve(outDir, f))
+}
+const mepPdfjs = {
+  name: 'mep-pdfjs',
+  writeBundle(options: { dir?: string }) {
+    copyPdfjs(resolve(options.dir ?? 'dist', 'mep/vendor'))
+  },
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), mepPdfjs],
   base: './',
   build: {
     target: 'es2022',
