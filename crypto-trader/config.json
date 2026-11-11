@@ -1,0 +1,53 @@
+{
+  "environment": "production",
+  "mode": "paper",
+  "quoteCurrency": "USD",
+  "instruments": ["BTC_USD", "ETH_USD"],
+  "timeframe": "1h",
+  "pollSeconds": 30,
+
+  "strategy": {
+    "name": "sma-cross",
+    "params": {
+      "fastPeriod": 12,
+      "slowPeriod": 26,
+      "trendPeriod": 100
+    }
+  },
+
+  "risk": {
+    "maxPositionQuote": 50,
+    "maxTotalExposureQuote": 100,
+    "maxOpenPositions": 2,
+    "maxTradesPerDay": 6,
+    "dailyLossLimitQuote": 25,
+    "minSecondsBetweenTrades": 300,
+    "stopLossPct": 3,
+    "takeProfitPct": 6,
+    "trailingStopPct": 0,
+    "reserveQuote": 0
+  },
+
+  "execution": {
+    "orderType": "LIMIT",
+    "limitOffsetBps": 10,
+    "slippageBps": 10,
+    "takerFeeBps": 7.5,
+    "makerFeeBps": 7.5,
+    "maxSpreadBps": 50
+  },
+
+  "paper": {
+    "startingQuote": 1000
+  },
+
+  "dashboard": {
+    "enabled": true,
+    "port": 8787
+  },
+
+  "logging": {
+    "level": "info",
+    "file": "data/trader.log"
+  }
+}
