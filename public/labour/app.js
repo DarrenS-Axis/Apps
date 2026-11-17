@@ -860,4 +860,8 @@ $('signIn').onclick = async () => {
 }
 $('gateSettings').onclick = async () => { state.cfg ??= await loadConfig(); openSettings() }
 
-start().catch((err) => { console.error(err); showGate(err.message || String(err)) })
+// This page is also the sign-in popup's return address. In the popup, leave
+// the answer in the address bar for the window that opened it to collect.
+const inSignInPopup = window.opener && window.opener !== window && /[#&?](code|error)=/.test(location.hash + location.search)
+if (inSignInPopup) document.body.replaceChildren(document.createTextNode('Signing in…'))
+else start().catch((err) => { console.error(err); showGate(err.message || String(err)) })

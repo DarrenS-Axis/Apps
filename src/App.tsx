@@ -18,6 +18,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { PlantItemLink, PlantPage, PlantTagLink } from './pages/PlantPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { DesignPage } from './pages/DesignPage'
+import { LabourPage } from './pages/LabourPage'
 import { applyOrgConfig, isConfigured, lastReport, refreshAccount, startAutoSync } from './sync'
 import { SignInGate } from './components/SignInGate'
 import { BrandLogo, useBrand } from './components/Brand'
@@ -28,7 +29,7 @@ function TabBar({ projectId }: { projectId?: string }) {
   const project = useProject(projectId)
   if (!projectId || !project) {
     return (
-      <nav className="tabbar tabbar--5" aria-label="Main">
+      <nav className="tabbar tabbar--6" aria-label="Main">
         <NavLink to="/state" end>
           <IconHome />
           Projects
@@ -44,6 +45,10 @@ function TabBar({ projectId }: { projectId?: string }) {
         <NavLink to="/design">
           <IconDesign />
           Design
+        </NavLink>
+        <NavLink to="/labour">
+          <IconLabour />
+          Labour
         </NavLink>
         <NavLink to="/settings">
           <IconCog />
@@ -87,6 +92,11 @@ const IconDesign = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 20V9h6v6h10M10 9V4M20 15v5M7 9V6" />
     <circle cx="10" cy="15" r="1.4" />
+  </svg>
+)
+const IconLabour = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 5h16v15H4zM4 10h16M9 5v15M8 3v4M16 3v4" />
   </svg>
 )
 const IconRooms = () => (
@@ -147,9 +157,12 @@ function Shell() {
   // On the organisation's app, a device opens on its shared data only once signed in.
   const needsSignIn = settings.sync.managed && settings.sync.requireSignIn && !settings.sync.devToken && !settings.sync.account
 
-  const onDesign = location.pathname === '/design'
-  const title = project ? project.name : onDesign ? 'MEP design' : settings.state ? `Axis QA · ${settings.state}` : 'Axis QA'
-  const subtitle = onDesign
+  const onLabour = location.pathname === '/labour'
+  const onDesign = location.pathname === '/design' || onLabour
+  const title = project ? project.name : onLabour ? 'Labour' : onDesign ? 'MEP design' : settings.state ? `Axis QA · ${settings.state}` : 'Axis QA'
+  const subtitle = onLabour
+    ? 'SA labour allocation · live from SharePoint'
+    : onDesign
     ? 'Axis MEP Design'
     : project
     ? [project.projectNumber, project.client].filter(Boolean).join(' · ') || 'Controldoc · Firedoc · Reviewdoc · Room data'
@@ -237,6 +250,7 @@ function Shell() {
               <Route path="/plant/item/:plantNo" element={<PlantItemLink />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/design" element={<DesignPage />} />
+              <Route path="/labour" element={<LabourPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<NotFound />} />
             </Routes>

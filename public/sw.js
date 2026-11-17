@@ -82,6 +82,9 @@ self.addEventListener('activate', (e) => {
 // Design tab. Its files are not hashed, so they are fetched network first —
 // a deploy reaches the next open — with the cached copy used offline.
 const MEP_PATH = new URL('./mep/', self.registration.scope).pathname
+// Likewise the labour sheet (./labour/), on the Labour tab. It is live data
+// from SharePoint, so it is never served from the cache when online.
+const LABOUR_PATH = new URL('./labour/', self.registration.scope).pathname
 
 function networkFirst(req) {
   return fetch(req)
@@ -101,7 +104,8 @@ self.addEventListener('fetch', (e) => {
 
   // Must come before the navigation handler: the design tool's own page is a
   // navigation too, and must never be stored as the QA app's shell.
-  if (new URL(req.url).pathname.startsWith(MEP_PATH)) {
+  const path = new URL(req.url).pathname
+  if (path.startsWith(MEP_PATH) || path.startsWith(LABOUR_PATH)) {
     e.respondWith(networkFirst(req))
     return
   }

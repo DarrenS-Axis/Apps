@@ -18,6 +18,9 @@ export class GraphError extends Error {
 export class Auth {
   constructor({ tenantId, clientId, devToken }) {
     this.devToken = devToken
+    // Inside the QA app's Labour tab the page is in a frame, where Microsoft's
+    // sign-in page refuses to load — so sign in through a popup there.
+    this.framed = window.top !== window
     if (devToken) return
     this.pca = new msal.PublicClientApplication({
       auth: {
@@ -43,12 +46,18 @@ export class Auth {
     return this.pca.getActiveAccount() || this.pca.getAllAccounts()[0] || null
   }
 
-  signIn() {
-    return this.pca.loginRedirect({ scopes: SCOPES, prompt: 'select_account' })
+  async signIn() {
+    if (!this.framed) return this.pca.loginRedirect({ scopes: SCOPES, prompt: 'select_account' })
+    const res = await this.pca.loginPopup({ scopes: SCOPES, prompt: 'select_account' })
+    this.pca.setActiveAccount(res.account)
+    location.reload()
   }
 
   signOut() {
-    return this.pca.logoutRedirect({ account: this.account() })
+    const account = this.account()
+    return this.framed
+      ? this.pca.logoutPopup({ account }).then(() => location.reload())
+      : this.pca.logoutRedirect({ account })
   }
 
   async token() {
@@ -59,6 +68,8 @@ export class Auth {
       return (await this.pca.acquireTokenSilent({ scopes: SCOPES, account })).accessToken
     } catch (err) {
       if (err instanceof msal.InteractionRequiredAuthError) {
+        // A popup needs a click, so in a frame send the person back to the sign-in button.
+        if (this.framed) throw new GraphError(401, 'interactionRequired', 'Sign in again to keep working.')
         await this.pca.acquireTokenRedirect({ scopes: SCOPES, account })
         return new Promise(() => {}) // the page navigates away
       }
