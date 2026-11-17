@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f2436" />
+  <meta name="description" content="Axis SA labour allocation, live from the Labour workbook in SharePoint" />
+  <title>Axis Labour</title>
+  <link rel="icon" href="../icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="./vendor/msal-browser.min.js"></script>
+</head>
+<body>
+  <!-- Shown until someone signs in -->
+  <section id="gate" class="gate" hidden>
+    <div class="card">
+      <div class="logo">AXIS</div>
+      <h1>Labour allocation</h1>
+      <p id="gateMsg">Sign in with your Axis Microsoft 365 account to open the labour sheet.</p>
+      <button id="signIn" class="primary big">Sign in with Microsoft</button>
+      <button id="gateSettings" class="link">Connection settings</button>
+    </div>
+  </section>
+
+  <section id="app" class="app" hidden>
+    <header class="bar">
+      <div class="brand"><span class="logo sm">AXIS</span> Labour</div>
+      <a id="fileLink" class="file" target="_blank" rel="noopener" title="Open the master workbook in Excel"></a>
+      <div class="tools">
+        <input id="search" type="search" placeholder="Find person…" aria-label="Find person" />
+        <input id="highlight" type="search" list="entries" placeholder="Highlight job / leave…" aria-label="Highlight a job or leave type" />
+        <datalist id="entries"></datalist>
+        <button id="today" title="Jump to today (T)">Today</button>
+        <input id="jump" type="date" aria-label="Jump to date" title="Jump to a date" />
+        <label class="check" title="Hide rows with nothing booked from 4 weeks ago to 2 months ahead"><input id="active" type="checkbox" /> Current only</label>
+        <button id="dayBtn" title="Who is where on the selected day (D)">Day view</button>
+        <button id="refresh" title="Reload from SharePoint (R)" aria-label="Reload">⟳</button>
+      </div>
+      <span id="status" class="status">Connecting…</span>
+      <div class="menu">
+        <button id="userBtn" class="user" aria-haspopup="true"></button>
+        <div id="userMenu" class="pop" hidden>
+          <button data-act="excel">Open the workbook in Excel</button>
+          <button data-act="settings">Connection settings</button>
+          <button data-act="help">Keyboard shortcuts</button>
+          <button data-act="signout">Sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <div id="gridHost" class="grid-host"></div>
+      <aside id="day" class="day" hidden>
+        <div class="day-head">
+          <button id="dayPrev" aria-label="Previous day">‹</button>
+          <h2 id="dayTitle"></h2>
+          <button id="dayNext" aria-label="Next day">›</button>
+          <button id="dayClose" class="x" aria-label="Close">×</button>
+        </div>
+        <div id="dayBody" class="day-body"></div>
+      </aside>
+    </main>
+
+    <footer class="foot">
+      <nav id="tabs" class="tabs" aria-label="Sheets"></nav>
+      <div id="legend" class="legend"></div>
+      <div id="cellInfo" class="cellinfo"></div>
+    </footer>
+  </section>
+
+  <!-- Cell editor -->
+  <div id="editor" class="editor" hidden>
+    <div class="ed-head"><span id="edWhere"></span><button id="edClose" class="x" aria-label="Close">×</button></div>
+    <input id="edInput" list="entries" autocomplete="off" spellcheck="false" />
+    <div id="edChips" class="chips"></div>
+    <div id="edRoster" class="ed-opts">
+      <label>Repeat for the next <input id="edRepeat" type="number" min="0" max="260" value="0" /> working days</label>
+      <label class="check"><input id="edWeekdays" type="checkbox" checked /> Skip Saturdays &amp; Sundays</label>
+    </div>
+    <div class="ed-actions">
+      <button id="edClear">Clear</button>
+      <span class="grow"></span>
+      <button id="edCancel">Cancel</button>
+      <button id="edApply" class="primary">Save to Excel</button>
+    </div>
+  </div>
+
+  <dialog id="settings">
+    <form method="dialog" class="form">
+      <h2>Connection settings</h2>
+      <label>Labour workbook link (SharePoint)
+        <input name="fileUrl" type="url" required />
+      </label>
+      <label>Workbook name to search for if the link can't be opened
+        <input name="fileName" />
+      </label>
+      <label>Check for changes every (seconds)
+        <input name="pollSeconds" type="number" min="5" max="300" />
+      </label>
+      <details>
+        <summary>Microsoft 365 app registration</summary>
+        <label>Tenant id <input name="tenantId" /></label>
+        <label>Application (client) id <input name="clientId" /></label>
+      </details>
+      <div class="ed-actions">
+        <button value="reset" formnovalidate>Defaults</button>
+        <span class="grow"></span>
+        <button value="cancel" formnovalidate>Cancel</button>
+        <button value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="help">
+    <form method="dialog" class="form">
+      <h2>Using the labour sheet</h2>
+      <p>Every change is written straight into the Labour workbook in SharePoint — the Excel file is the master. Changes made by anyone, here or in Excel, appear on everyone's screen within a few seconds (cells changed by someone else flash orange).</p>
+      <table class="keys">
+        <tr><td>Click / drag</td><td>Select cells (Shift+click extends)</td></tr>
+        <tr><td>Type, Enter or double-click</td><td>Edit — the value goes into every selected cell</td></tr>
+        <tr><td>Delete</td><td>Clear the selected cells</td></tr>
+        <tr><td>Ctrl+C / Ctrl+V</td><td>Copy and paste (also to and from Excel)</td></tr>
+        <tr><td>Ctrl+Z</td><td>Undo your last change</td></tr>
+        <tr><td>Arrows</td><td>Move (Shift extends)</td></tr>
+        <tr><td>T / D / R</td><td>Today · day view · reload</td></tr>
+        <tr><td>Phone</td><td>Tap a cell to select it, tap again to edit</td></tr>
+      </table>
+      <p class="muted">Inserting or deleting rows, colours and formulas are still done in Excel; the app picks them up automatically.</p>
+      <div class="ed-actions"><span class="grow"></span><button class="primary">Close</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

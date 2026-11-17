@@ -57,11 +57,14 @@ jobs:
           AXIS_CLIENT_ID: ${{ vars.AXIS_CLIENT_ID }}
           AXIS_SITE_URL: ${{ vars.AXIS_SITE_URL }}
           AXIS_POLL_SECONDS: ${{ vars.AXIS_POLL_SECONDS }}
+          AXIS_LABOUR_FILE_URL: ${{ vars.AXIS_LABOUR_FILE_URL }}
         run: |
           if [ -n "$AXIS_TENANT_ID" ] && [ -n "$AXIS_CLIENT_ID" ] && [ -n "$AXIS_SITE_URL" ]; then
             node -e '
               const c = { tenantId: process.env.AXIS_TENANT_ID, clientId: process.env.AXIS_CLIENT_ID, siteUrl: process.env.AXIS_SITE_URL, requireSignIn: true }
               if (process.env.AXIS_POLL_SECONDS) c.pollSeconds = Number(process.env.AXIS_POLL_SECONDS)
+              // The labour sheet (/labour/) opens this workbook.
+              if (process.env.AXIS_LABOUR_FILE_URL) c.labourFileUrl = process.env.AXIS_LABOUR_FILE_URL
               require("fs").writeFileSync("dist/axis-config.json", JSON.stringify(c, null, 2) + "\n")
             '
             echo "Organisation config written for $AXIS_SITE_URL"

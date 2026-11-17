@@ -16,6 +16,10 @@ Live: <https://darrens-axis.github.io/Apps/>
 drainage, supply air), lives in [`public/mep/`](public/mep/README.md) and is published
 alongside the app at `/Apps/mep/`.
 
+**Axis Labour**, the SA labour allocation sheet as a live shared page — reading and
+writing the Labour workbook in SharePoint, which stays the master — lives in
+[`public/labour/`](public/labour/README.md) and is published at `/Apps/labour/`.
+
 ---
 
 ## How it is organised
