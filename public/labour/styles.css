@@ -41,7 +41,12 @@ input[type=search], input[type=date], input[type=url], input[type=number], input
 .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 32px 28px; max-width: 380px; width: 100%; text-align: center; box-shadow: 0 4px 18px rgba(15,36,54,.08); }
 .card h1 { margin: 18px 0 6px; font-size: 22px; }
 .card p { color: var(--muted); margin: 0 0 22px; }
-.big { width: 100%; padding: 11px; font-weight: 600; }
+.big { width: 100%; padding: 11px; font-weight: 600; white-space: normal; }
+.card .big + .big { margin-top: 8px; }
+.card .hint { font-size: 12px; margin: 8px 0 0; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; margin: 16px 0; }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+#gateSettings { margin-top: 10px; }
 
 /* App shell */
 .app { height: 100%; display: flex; flex-direction: column; }

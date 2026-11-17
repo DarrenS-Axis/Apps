@@ -8,6 +8,25 @@ the workbook through Microsoft Graph's Excel API and writes every change straigh
 into it. People can keep using Excel (desktop or online) at the same time — both sides
 see each other's changes.
 
+## Two ways to use it
+
+1. **Open the Excel file — no sign-in, no SharePoint setup.** Pick the workbook from the
+   computer. Everything below works the same; changes are saved back into that .xlsx,
+   changing only the edited cells (colours, column widths, the other sheets and their
+   formulas are kept).
+   - **Chrome or Edge on a computer:** the page saves straight over the file you opened,
+     a second or two after each change (and the Save button / Ctrl+S). Open the copy in
+     the OneDrive-synced SharePoint folder and OneDrive uploads each save, so SharePoint
+     and Excel users get it. If the file changes on disk (someone else's edit synced
+     down) and you have nothing unsaved, the sheet reloads by itself. Next time the
+     start screen offers **Reopen Labour 2026.xlsx**.
+   - **Other browsers / phones:** the updated workbook is downloaded; save or upload it
+     over the original.
+   - Not live between people the way sign-in is: two people saving the same file at
+     the same moment can overwrite each other (OneDrive keeps both versions).
+2. **Sign in with Microsoft** — live, shared editing straight into the SharePoint
+   workbook. Needs the one-time setup below.
+
 ## What it does
 
 - The **Labour** sheet as a grid: month / day / weekday header and the notes row frozen
@@ -71,6 +90,7 @@ named "Labour".
 | `grid.js` | the canvas grid (only on-screen cells are drawn — the sheet is ~220 × 600) |
 | `sheet.js` | header → dates, colours |
 | `graph.js` | sign-in (MSAL) and the Excel API |
+| `xlsxfile.js` | the no-sign-in mode: reads and saves the .xlsx itself (zip + XML, no library) |
 | `vendor/msal-browser.min.js` | Microsoft's sign-in library |
 
 To try it locally against a stand-in Graph server, serve `public/` and open

@@ -16,8 +16,12 @@
     <div class="card">
       <div class="logo">AXIS</div>
       <h1>Labour allocation</h1>
-      <p id="gateMsg">Sign in with your Axis Microsoft 365 account to open the labour sheet.</p>
-      <button id="signIn" class="primary big">Sign in with Microsoft</button>
+      <p id="gateMsg">Open the Labour workbook to view and update the labour sheet.</p>
+      <button id="reopenFile" class="primary big" hidden></button>
+      <button id="openFile" class="primary big">Open the Labour Excel file</button>
+      <p class="hint">No sign-in needed. Changes are saved back into the same .xlsx — pick it from the OneDrive-synced SharePoint folder on a computer and Excel and SharePoint get them too.</p>
+      <div class="or"><span>or</span></div>
+      <button id="signIn" class="big">Sign in with Microsoft — live, shared editing</button>
       <button id="gateSettings" class="link">Connection settings</button>
     </div>
   </section>
@@ -34,16 +38,18 @@
         <input id="jump" type="date" aria-label="Jump to date" title="Jump to a date" />
         <label class="check" title="Hide rows with nothing booked from 4 weeks ago to 2 months ahead"><input id="active" type="checkbox" /> Current only</label>
         <button id="dayBtn" title="Who is where on the selected day (D)">Day view</button>
-        <button id="refresh" title="Reload from SharePoint (R)" aria-label="Reload">⟳</button>
+        <button id="refresh" title="Reload (R)" aria-label="Reload">⟳</button>
+        <button id="saveBtn" class="primary" hidden title="Save the changes into the Excel file (Ctrl+S)">Save</button>
       </div>
       <span id="status" class="status">Connecting…</span>
       <div class="menu">
         <button id="userBtn" class="user" aria-haspopup="true"></button>
         <div id="userMenu" class="pop" hidden>
-          <button data-act="excel">Open the workbook in Excel</button>
+          <button data-act="excel" id="menuExcel">Open the workbook in Excel</button>
+          <button data-act="openfile">Open another Excel file</button>
           <button data-act="settings">Connection settings</button>
           <button data-act="help">Keyboard shortcuts</button>
-          <button data-act="signout">Sign out</button>
+          <button data-act="signout" id="menuSignout">Sign out</button>
         </div>
       </div>
     </header>

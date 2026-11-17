@@ -5,6 +5,7 @@
 
 import { Auth, Graph, GraphError, Workbook, address, colName, locateWorkbook } from './graph.js'
 import { Grid } from './grid.js'
+import { lastHandle, pickWorkbook, reopen } from './xlsxfile.js'
 import { LEGEND, colourFor, describe, display, fmtDate, isLeave, normalise, sameDay } from './sheet.js'
 
 const DEFAULTS = {
@@ -77,9 +78,20 @@ async function start() {
   } catch (err) {
     return showGate(`Sign-in failed: ${err.message || err}`)
   }
+  showApp()
+  await connect()
+}
+
+let appShown = false
+function showApp() {
   $('gate').hidden = true
   $('app').hidden = false
   $('userBtn').textContent = state.user.name
+  $('saveBtn').hidden = !state.local
+  $('menuExcel').hidden = !!state.local
+  $('menuSignout').textContent = state.local ? 'Close the file' : 'Sign out'
+  if (appShown) return
+  appShown = true
   grid = new Grid($('gridHost'), {
     onSelect: showCellInfo,
     onActivate: (r, c) => openEditor(),
@@ -90,8 +102,78 @@ async function start() {
   })
   bindUi()
   renderLegend()
-  await connect()
 }
+
+// ---------------------------------------------------------------- no sign-in: a file
+
+async function openLocal(getBook) {
+  let book
+  try {
+    book = await getBook()
+  } catch (err) {
+    if (err.name !== 'AbortError' && err.message !== 'No file chosen') toast(err.message || String(err), true)
+    return
+  }
+  state.cfg ??= await loadConfig()
+  state.local = true
+  state.user = { name: book.name }
+  state.models.clear()
+  state.undo = []
+  state.wb = book
+  book.onChange = () => { updateSave(); scheduleAutosave() }
+  showApp()
+  try {
+    state.stamp = await book.stamp()
+    $('fileLink').textContent = book.name
+    $('fileLink').removeAttribute('href')
+    state.sheets = await book.sheets()
+    renderTabs()
+    const remembered = readPrefs().sheet
+    const first = state.sheets.find((s) => s.name === remembered) || state.sheets[0]
+    await openSheet(first.name)
+    setLive()
+    schedulePoll()
+  } catch (err) {
+    loading(false)
+    fail(err, true)
+  }
+}
+
+function updateSave() {
+  const b = state.wb
+  if (!state.local) return
+  $('saveBtn').textContent = b.handle ? (b.dirty ? 'Save' : 'Saved') : 'Download .xlsx'
+  $('saveBtn').disabled = !b.dirty && !!b.handle
+  setLive()
+}
+
+let autosaveTimer
+function scheduleAutosave() {
+  // Saving over the opened file is quick and safe, so do it as people work.
+  if (!state.wb.handle) return
+  clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(saveLocal, 1500)
+}
+
+async function saveLocal() {
+  const b = state.wb
+  if (!state.local || (!b.dirty && b.handle)) return
+  if (state.saving) return scheduleAutosave()
+  clearTimeout(autosaveTimer)
+  try {
+    setStatus('Saving to the file…', 'saving')
+    const how = await b.save()
+    state.stamp = await b.stamp()
+    if (how === 'downloaded') toast(`Downloaded ${b.name} — save it over the original (or upload it to SharePoint).`)
+  } catch (err) {
+    fail(err)
+  }
+  updateSave()
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (state.local && state.wb && state.wb.dirty) { e.preventDefault(); e.returnValue = '' }
+})
 
 function showGate(msg) {
   $('gate').hidden = false
@@ -254,6 +336,15 @@ document.addEventListener('visibilitychange', () => {
 
 function setLive() {
   if (state.saving) return setStatus('Saving to Excel…', 'saving')
+  if (state.local) {
+    const b = state.wb
+    if (b.dirty) setStatus(b.handle ? 'Unsaved changes' : 'Unsaved — download to keep', 'saving')
+    else setStatus(b.handle ? 'Saved to the file' : 'File opened', 'live')
+    $('status').title = b.handle
+      ? 'Changes save straight into the file you opened. If it changes on disk (e.g. via OneDrive) the sheet reloads.'
+      : 'This browser can only download the updated workbook — save it over the original.'
+    return
+  }
   const s = state.stamp
   let who = '', full = ''
   if (s && s.lastModifiedDateTime) {
@@ -533,7 +624,7 @@ async function commit(cells, { undoable = true } = {}) {
   try {
     const rowsInvolved = [...byRow.keys()]
     const lo = Math.min(...rowsInvolved), hi = Math.max(...rowsInvolved)
-    if (hi >= layout.frozenRows) {
+    if (!state.local && hi >= layout.frozenRows) {
       const nc = layout.nameCol
       const live = await state.wb.readRange(name, address(lo, nc, hi, nc))
       const moved = rowsInvolved.some((r) => r >= layout.frozenRows && display(live.values[r - lo][0]) !== display(data.values[r][nc]))
@@ -564,7 +655,7 @@ async function commit(cells, { undoable = true } = {}) {
       }
     }
     const n = cells.length
-    if (n > 1) toast(`Saved ${n} cells to Excel`)
+    if (n > 1 && !state.local) toast(`Saved ${n} cells to Excel`)
   } catch (err) {
     for (const { r, c } of cells) grid.pending.delete(r + ',' + c)
     fail(err)
@@ -811,7 +902,13 @@ function bindUi() {
     if (act === 'excel' && state.wb) window.open(state.wb.webUrl, '_blank', 'noopener')
     if (act === 'settings') openSettings()
     if (act === 'help') $('help').showModal()
-    if (act === 'signout') state.auth.signOut()
+    if (act === 'openfile') openLocal(pickWorkbook)
+    if (act === 'signout') {
+      if (!state.local) return state.auth.signOut()
+      if (state.wb.dirty && !confirm('Close without saving your changes?')) return
+      state.wb.dirty = false
+      location.reload()
+    }
   })
 
   $('edApply').onclick = () => applyEditor()
@@ -852,8 +949,22 @@ function bindUi() {
 
   $('signIn').onclick = () => state.auth.signIn()
   $('gateSettings').onclick = openSettings
+  $('saveBtn').onclick = saveLocal
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && state.local) { e.preventDefault(); saveLocal() }
+  })
 }
 
+$('openFile').onclick = () => openLocal(pickWorkbook)
+lastHandle().then((h) => {
+  if (!h) return
+  const b = $('reopenFile')
+  b.textContent = `Reopen ${h.name}`
+  b.hidden = false
+  $('openFile').classList.remove('primary')
+  $('openFile').textContent = 'Open a different Excel file'
+  b.onclick = () => openLocal(() => reopen(h))
+})
 $('signIn').onclick = async () => {
   if (!state.auth) state.cfg = await loadConfig()
   try { (state.auth ??= new Auth(state.cfg)).signIn() } catch (err) { $('gateMsg').textContent = err.message }
