@@ -1,0 +1,19 @@
+{
+  "name": "cdc-trader",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Automated spot trading bot for the Crypto.com Exchange, with paper trading, backtesting and hard risk limits",
+  "engines": { "node": ">=20.11" },
+  "scripts": {
+    "start": "node src/index.js run",
+    "paper": "node src/index.js run --mode paper",
+    "live": "node src/index.js run --mode live",
+    "backtest": "node src/index.js backtest",
+    "balance": "node src/index.js balance",
+    "instruments": "node src/index.js instruments",
+    "status": "node src/index.js status",
+    "flatten": "node src/index.js flatten",
+    "test": "node --test tests/*.test.mjs"
+  }
+}
